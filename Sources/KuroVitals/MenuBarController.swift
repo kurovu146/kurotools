@@ -29,7 +29,7 @@ public extension MenuBarController {
     ///   - s:             Latest sensor snapshot.
     ///   - settings:      Current user settings (used for Show-X states and threshold).
     ///   - target:        Action target for every interactive item.
-    ///   - applyFan:      Action for per-fan Apply button and field enter key; sender.tag = fan index.
+    ///   - applyFanPreset: Action for a per-fan RPM submenu item; sender.tag = fan*100000 + rpm.
     ///   - autoFan:       Action for per-fan "Auto" button; sender.tag = fan index.
     ///   - allAuto:       Action for "Tất cả Auto" (revert all fans).
     ///   - presetQuiet:   Action for "Quiet (min) tất cả".
@@ -37,19 +37,17 @@ public extension MenuBarController {
     ///   - toggleShow:    Action for Show-X checkable items; sender.tag = 0:temp 1:cpu 2:ram 3:fan.
     ///   - setThreshold:  Action for threshold items; sender.tag = the °C value (90/95/100).
     ///   - quit:          Action for "Quit KuroVitals".
-    ///   - rpmFields:     NSTextField instances owned by the caller; one per fan, indexed by fan.
     func updateMenu(snapshot s: Snapshot,
                     settings: Settings,
                     target: AnyObject,
-                    applyFan: Selector,
+                    applyFanPreset: Selector,
                     autoFan: Selector,
                     allAuto: Selector,
                     presetQuiet: Selector,
                     presetMax: Selector,
                     toggleShow: Selector,
                     setThreshold: Selector,
-                    quit: Selector,
-                    rpmFields: [NSTextField]) {
+                    quit: Selector) {
 
         let menu = NSMenu()
 
@@ -66,43 +64,48 @@ public extension MenuBarController {
         // ── 2. Separator ──────────────────────────────────────────────────────
         menu.addItem(.separator())
 
-        // ── 3. Per-fan rows ───────────────────────────────────────────────────
+        // ── 3. Per-fan submenus (RPM presets) ─────────────────────────────────
+        // NOTE: a text field inside an NSMenu can't receive typed input (the menu's
+        // modal event tracking swallows keystrokes), so per-fan control is a submenu
+        // of plain menu items — those fire their actions reliably.
+        // tag encodes (fan, rpm) as `fan * 100000 + rpm` (rpm < 100000, fan small).
+        let rpmStep = 500
         for (i, f) in s.fans.enumerated() {
-            // Disabled info row for this fan
             let modeLabel = f.forced ? "tay" : "auto"
-            info("Quạt \(i + 1): \(Int(f.rpm)) rpm (\(modeLabel)) · \(Int(f.min))–\(Int(f.max))")
+            let parent = NSMenuItem(
+                title: "Quạt \(i + 1): \(Int(f.rpm)) rpm (\(modeLabel))",
+                action: nil, keyEquivalent: "")
+            let sub = NSMenu(title: "Quạt \(i + 1)")
 
-            // Input row (custom NSView) — only if we have an rpmField for this fan
-            guard i < rpmFields.count else { continue }
-            let field = rpmFields[i]
-            let row = NSMenuItem()
-            let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 28))
+            let autoItem = NSMenuItem(title: "Auto (hệ thống)", action: autoFan, keyEquivalent: "")
+            autoItem.tag = i
+            autoItem.target = target
+            autoItem.state = f.forced ? .off : .on
+            sub.addItem(autoItem)
+            sub.addItem(.separator())
 
-            field.frame = NSRect(x: 14, y: 3, width: 110, height: 22)
-            field.placeholderString = "RPM"
-            field.tag = i
-            field.target = target
-            field.action = applyFan
+            // RPM steps from the first multiple of `rpmStep` ≥ min, up to (and incl.) max.
+            let lo = Int((f.min / Double(rpmStep)).rounded(.up)) * rpmStep
+            let hi = Int(f.max)
+            var rpm = Swift.max(lo, rpmStep)
+            while rpm < hi {
+                let item = NSMenuItem(title: "\(rpm) rpm", action: applyFanPreset, keyEquivalent: "")
+                item.tag = i * 100000 + rpm
+                item.target = target
+                if f.forced, abs(f.rpm - Double(rpm)) < Double(rpmStep) / 2 { item.state = .on }
+                sub.addItem(item)
+                rpm += rpmStep
+            }
+            if hi > 0 {
+                let maxItem = NSMenuItem(title: "Max (\(hi) rpm)", action: applyFanPreset, keyEquivalent: "")
+                maxItem.tag = i * 100000 + hi
+                maxItem.target = target
+                if f.forced, f.rpm >= Double(hi) - Double(rpmStep) / 2 { maxItem.state = .on }
+                sub.addItem(maxItem)
+            }
 
-            let applyBtn = NSButton(frame: NSRect(x: 130, y: 1, width: 66, height: 26))
-            applyBtn.title = "Áp dụng"
-            applyBtn.bezelStyle = .rounded
-            applyBtn.tag = i
-            applyBtn.target = target
-            applyBtn.action = applyFan
-
-            let autoBtn = NSButton(frame: NSRect(x: 200, y: 1, width: 52, height: 26))
-            autoBtn.title = "Auto"
-            autoBtn.bezelStyle = .rounded
-            autoBtn.tag = i
-            autoBtn.target = target
-            autoBtn.action = autoFan
-
-            container.addSubview(field)
-            container.addSubview(applyBtn)
-            container.addSubview(autoBtn)
-            row.view = container
-            menu.addItem(row)
+            parent.submenu = sub
+            menu.addItem(parent)
         }
 
         // ── 4. Separator + global fan controls ───────────────────────────────

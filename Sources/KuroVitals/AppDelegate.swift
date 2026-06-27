@@ -12,7 +12,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var fan: FanController!
     private var timer: Timer?
     private var settings = Settings.load()
-    private var rpmFields: [NSTextField] = []
     private var lastSnapshot: Snapshot?
     private var menuOpen = false
     private var warnUntil: Date?
@@ -39,11 +38,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let s = reader.snapshot()
         lastSnapshot = s
 
-        // Lazily build / rebuild rpmFields when fan count changes.
-        if rpmFields.count != s.fans.count {
-            rpmFields = s.fans.map { _ in NSTextField(string: "") }
-        }
-
         let tickResult = fan.tick(currentTempC: s.cpuTempC)
         if tickResult.reverted {
             warnUntil = Date().addingTimeInterval(3)
@@ -63,15 +57,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if !menuOpen {
             menuBar.updateMenu(snapshot: s, settings: settings, target: self,
-                applyFan: #selector(applyFan(_:)),
+                applyFanPreset: #selector(applyFanPreset(_:)),
                 autoFan: #selector(autoFan(_:)),
                 allAuto: #selector(allAutoAction),
                 presetQuiet: #selector(presetQuiet),
                 presetMax: #selector(presetMax),
                 toggleShow: #selector(toggleShow(_:)),
                 setThreshold: #selector(setThreshold(_:)),
-                quit: #selector(quitApp),
-                rpmFields: rpmFields)
+                quit: #selector(quitApp))
             menuBar.statusItem.menu?.delegate = self
         }
     }
@@ -83,14 +76,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         helperWarnUntil = Date().addingTimeInterval(3)
     }
 
-    @objc private func applyFan(_ sender: NSControl) {
-        let i = sender.tag
-        guard let s = lastSnapshot, i < s.fans.count, i < rpmFields.count,
-              let rpm = Int(rpmFields[i].stringValue) else { return }
-        let (applied, resp) = fan.setTarget(fan: i, rpm: rpm,
-                                            min: Int(s.fans[i].min),
-                                            max: Int(s.fans[i].max))
-        rpmFields[i].stringValue = String(applied)
+    /// Sender tag encodes (fan, rpm) as `fan * 100000 + rpm` (set in updateMenu).
+    @objc private func applyFanPreset(_ sender: NSMenuItem) {
+        let fanIdx = sender.tag / 100000
+        let rpm = sender.tag % 100000
+        guard let s = lastSnapshot, fanIdx >= 0, fanIdx < s.fans.count else { return }
+        let f = s.fans[fanIdx]
+        let (_, resp) = fan.setTarget(fan: fanIdx, rpm: rpm, min: Int(f.min), max: Int(f.max))
         if !resp.ok { flashHelperWarning() }
     }
 
