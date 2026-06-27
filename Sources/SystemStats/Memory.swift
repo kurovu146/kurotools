@@ -13,9 +13,13 @@ public struct MemoryInfo {
     }
 }
 
-/// "Used" = active + wired + compressed (matches Activity Monitor's memory pressure footprint closely enough).
-public func memoryUsed(active: UInt64, wired: UInt64, compressed: UInt64, pageSize: UInt64) -> UInt64 {
-    (active + wired + compressed) * pageSize
+/// "Used" matches Activity Monitor's "Memory Used":
+/// App Memory (internal/anonymous − purgeable) + wired + compressed.
+/// (The old `active`-based formula under-counted anonymous memory and didn't match Activity Monitor.)
+public func memoryUsed(internalPages: UInt64, purgeablePages: UInt64,
+                       wired: UInt64, compressed: UInt64, pageSize: UInt64) -> UInt64 {
+    let appMemory = internalPages > purgeablePages ? internalPages - purgeablePages : 0
+    return (appMemory + wired + compressed) * pageSize
 }
 
 public final class MemorySampler {
@@ -32,7 +36,8 @@ public final class MemorySampler {
         let pageSize = UInt64(vm_kernel_page_size)
         let total = ProcessInfo.processInfo.physicalMemory
         guard kr == KERN_SUCCESS else { return MemoryInfo(usedBytes: 0, totalBytes: total) }
-        let used = memoryUsed(active: UInt64(stats.active_count),
+        let used = memoryUsed(internalPages: UInt64(stats.internal_page_count),
+                              purgeablePages: UInt64(stats.purgeable_count),
                               wired: UInt64(stats.wire_count),
                               compressed: UInt64(stats.compressor_page_count),
                               pageSize: pageSize)
