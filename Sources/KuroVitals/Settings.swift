@@ -10,14 +10,16 @@ public struct Settings {
     public init() {}
 
     private static let d = UserDefaults.standard
+    private static let defaultValues: [String: Any] = [
+        "showTemp": true, "showCPU": true, "showRAM": true, "showFan": true,
+        "thresholdC": 95.0, "refreshSeconds": 1.5,
+    ]
     public static func load() -> Settings {
+        d.register(defaults: defaultValues)
         var s = Settings()
-        if d.object(forKey: "showTemp") != nil { s.showTemp = d.bool(forKey: "showTemp") }
-        if d.object(forKey: "showCPU") != nil { s.showCPU = d.bool(forKey: "showCPU") }
-        if d.object(forKey: "showRAM") != nil { s.showRAM = d.bool(forKey: "showRAM") }
-        if d.object(forKey: "showFan") != nil { s.showFan = d.bool(forKey: "showFan") }
-        if d.object(forKey: "thresholdC") != nil { s.thresholdC = d.double(forKey: "thresholdC") }
-        if d.object(forKey: "refreshSeconds") != nil { s.refreshSeconds = d.double(forKey: "refreshSeconds") }
+        s.showTemp = d.bool(forKey: "showTemp"); s.showCPU = d.bool(forKey: "showCPU")
+        s.showRAM = d.bool(forKey: "showRAM");   s.showFan = d.bool(forKey: "showFan")
+        s.thresholdC = d.double(forKey: "thresholdC"); s.refreshSeconds = d.double(forKey: "refreshSeconds")
         return s
     }
     public func save() {

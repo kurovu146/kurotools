@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refresh() {
         let s = reader.snapshot()
         lastSnapshot = s
-        let reverted = fan.tick(currentTempC: s.cpuTempC, currentlyForced: s.fanForced)
+        let reverted = fan.tick(currentTempC: s.cpuTempC)
         if reverted { warnUntil = Date().addingTimeInterval(3) }
         if let until = warnUntil, until > Date() {
             menuBar.statusItem.button?.title = "⚠︎ Quá nhiệt → Auto"

@@ -40,7 +40,7 @@ public final class FanController {
     /// the daemon's TTL alive; auto-reverts to Auto on over-temp.
     /// Returns true if it auto-reverted this tick.
     @discardableResult
-    public func tick(currentTempC: Double, currentlyForced: Bool) -> Bool {
+    public func tick(currentTempC: Double) -> Bool {
         guard isManual else { return false }
         if currentTempC >= threshold {
             setAuto()

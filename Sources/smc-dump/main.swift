@@ -54,8 +54,6 @@ if CommandLine.arguments.contains("--test-high") {
         try smc.setFanMode(false)
         let f0After = (try? smc.read(SMCKey("F0Ac")))?.double ?? -1
         print(String(format: "  Reverted to Auto. F0Ac now=%.0f", f0After))
-        let climbed = (try? smc.read(SMCKey("F0Ac")))?.double ?? 0
-        _ = climbed
         print("  VERDICT: if F0Ac/F1Ac rose toward \(Int(target)) above, fan control WORKS.")
         print("           if they stayed near \(Int(f0Before)), firmware IGNORES writes (monitor-only).")
     } catch {

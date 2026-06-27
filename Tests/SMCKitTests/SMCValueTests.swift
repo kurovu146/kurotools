@@ -25,4 +25,11 @@ final class SMCValueTests: XCTestCase {
     func testFourCCRoundTrip() {
         XCTAssertEqual(SMCKey("F0Ac").fourCC, 0x46304163)
     }
+
+    func testFltBytesRoundTrip() {
+        // Hermetic: SMC.fltBytes is a static func — no hardware connection needed.
+        let bytes = SMC.fltBytes(2400)
+        let decoded = SMCValue(key: SMCKey("F0Tg"), dataType: .flt, bytes: bytes).double
+        XCTAssertEqual(decoded, 2400, accuracy: 0.5)
+    }
 }

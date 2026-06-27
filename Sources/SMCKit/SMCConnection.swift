@@ -70,7 +70,7 @@ final class SMCConnection {
                                           inPtr, inSize, outPtr, &outSize)
             }
         }
-        guard kr == kIOReturnSuccess else { throw SMCError.openFailed(kr) }
+        guard kr == kIOReturnSuccess else { throw SMCError.callFailed(kr) }
         return output
     }
 }
