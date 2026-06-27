@@ -4,6 +4,8 @@ cd "$(dirname "$0")/.."
 BIN=.build/release/kurovitals-helper
 [ -f "$BIN" ] || { echo "Run scripts/build-release.sh first"; exit 1; }
 
+# /usr/local/libexec doesn't exist by default on Apple Silicon — create it first.
+sudo mkdir -p /usr/local/libexec
 sudo install -m 755 -o root -g wheel "$BIN" /usr/local/libexec/kurovitals-helper
 
 PLIST=/Library/LaunchDaemons/com.kuro.kurovitals.helper.plist
@@ -28,3 +30,11 @@ sudo chmod 644 "$PLIST"
 sudo launchctl unload "$PLIST" 2>/dev/null || true
 sudo launchctl load "$PLIST"
 echo "Helper installed and loaded."
+
+# Verify the daemon is up and answering on its socket.
+sleep 1
+if [ -S /var/run/kurovitals.sock ] && printf '{"ping":{}}\n' | nc -U /var/run/kurovitals.sock 2>/dev/null | grep -q pong; then
+  echo "✓ Helper is running (ping → pong). Fan control ready."
+else
+  echo "⚠ Helper socket not responding yet. Check log: /var/log/kurovitals-helper.log"
+fi
