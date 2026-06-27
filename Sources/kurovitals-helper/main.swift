@@ -11,12 +11,15 @@ import HelperProtocol
 //      the watchdog then nullified, causing the fan to never auto-revert (safety bug).
 final class Daemon {
     let smc: SMC
-    private var deadline: Date?
+    let fanCount: Int
+    private var deadlines: [Int: Date] = [:]
     private let smcQueue = DispatchQueue(label: "com.kurovitals.smc")  // serial
 
     init() throws {
         smc = try SMC()
-        try? smc.setFanMode(false)   // boot into known-safe Auto; a live GUI re-forces on its next heartbeat
+        fanCount = smc.fanCount()
+        // Boot into known-safe Auto; a live GUI re-forces on its next heartbeat.
+        for f in 0..<fanCount { try? smc.setFanMode(fan: f, forced: false) }
     }
 
     func handle(_ cmd: FanCommand) -> FanResponse {
@@ -24,28 +27,41 @@ final class Daemon {
         case .ping:
             return FanResponse(ok: true, message: "pong")
 
-        case .setAuto:
+        case .allAuto:
+            return smcQueue.sync {
+                for f in 0..<fanCount { try? smc.setFanMode(fan: f, forced: false) }
+                deadlines.removeAll()
+                return FanResponse(ok: true, message: "all auto")
+            }
+
+        case let .setAuto(fan):
+            guard fan >= 0, fan < fanCount else {
+                return FanResponse(ok: false, message: "invalid fan \(fan)")
+            }
             return smcQueue.sync {
                 do {
-                    try smc.setFanMode(false)
-                    deadline = nil
-                    return FanResponse(ok: true, message: "auto")
+                    try smc.setFanMode(fan: fan, forced: false)
+                    deadlines[fan] = nil
+                    return FanResponse(ok: true, message: "fan \(fan) auto")
                 } catch {
                     return FanResponse(ok: false, message: "\(error)")
                 }
             }
 
-        case let .setTarget(rpm, ttl):
+        case let .setTarget(fan, rpm, ttl):
+            guard fan >= 0, fan < fanCount else {
+                return FanResponse(ok: false, message: "invalid fan \(fan)")
+            }
             // Validate strictly — this daemon runs as root.
             guard rpm > 0, rpm < 12000, ttl > 0, ttl <= 60 else {
                 return FanResponse(ok: false, message: "invalid args: rpm must be 1..<12000, ttl must be 1...60")
             }
             return smcQueue.sync {
                 do {
-                    try smc.setFanMode(true)
-                    try smc.setFanTarget(rpm: Double(rpm))
-                    deadline = Date().addingTimeInterval(TimeInterval(ttl))
-                    return FanResponse(ok: true, message: "target \(rpm)")
+                    try smc.setFanMode(fan: fan, forced: true)
+                    try smc.setFanTarget(fan: fan, rpm: Double(rpm))
+                    deadlines[fan] = Date().addingTimeInterval(TimeInterval(ttl))
+                    return FanResponse(ok: true, message: "fan \(fan) target \(rpm)")
                 } catch {
                     return FanResponse(ok: false, message: "\(error)")
                 }
@@ -57,17 +73,21 @@ final class Daemon {
     // happen atomically on smcQueue — no TOCTOU between reading and clearing deadline.
     func watchdogTick() {
         smcQueue.async {
-            if let d = self.deadline, Date() > d {
-                self.deadline = nil
-                try? self.smc.setFanMode(false)
-                FileHandle.standardError.write(Data("watchdog: reverted to Auto\n".utf8))
+            let now = Date()
+            let snap = self.deadlines   // value-type copy — safe to iterate while mutating self.deadlines
+            for (fan, d) in snap where now > d {
+                self.deadlines[fan] = nil
+                try? self.smc.setFanMode(fan: fan, forced: false)
+                FileHandle.standardError.write(Data("watchdog: fan \(fan) reverted to Auto\n".utf8))
             }
         }
     }
 
     // For signal handlers: revert synchronously so the caller can exit immediately.
     func revertNow() {
-        smcQueue.sync { try? smc.setFanMode(false) }
+        smcQueue.sync {
+            for f in 0..<self.fanCount { try? self.smc.setFanMode(fan: f, forced: false) }
+        }
     }
 }
 

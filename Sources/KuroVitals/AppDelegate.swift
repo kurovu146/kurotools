@@ -12,10 +12,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var fan: FanController!
     private var timer: Timer?
     private var settings = Settings.load()
-    private let rpmField = NSTextField(string: "")
+    private var rpmFields: [NSTextField] = []
     private var lastSnapshot: Snapshot?
     private var menuOpen = false
     private var warnUntil: Date?
+    private var helperWarnUntil: Date?
 
     func applicationDidFinishLaunching(_ note: Notification) {
         guard let smc = try? SMC() else {
@@ -28,7 +29,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         reader = SensorReader(smc: smc, cpu: CPULoadSampler(), mem: MemorySampler())
         fan = FanController(commander: HelperClient(), threshold: settings.thresholdC, ttlSeconds: 6)
-        rpmField.placeholderString = "RPM"
         timer = Timer.scheduledTimer(withTimeInterval: settings.refreshSeconds, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
@@ -38,20 +38,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refresh() {
         let s = reader.snapshot()
         lastSnapshot = s
+
+        // Lazily build / rebuild rpmFields when fan count changes.
+        if rpmFields.count != s.fans.count {
+            rpmFields = s.fans.map { _ in NSTextField(string: "") }
+        }
+
         let reverted = fan.tick(currentTempC: s.cpuTempC)
         if reverted { warnUntil = Date().addingTimeInterval(3) }
+
+        // Title priority: over-temp warning > helper warning > normal readout.
         if let until = warnUntil, until > Date() {
             menuBar.statusItem.button?.title = "⚠︎ Quá nhiệt → Auto"
+        } else if let until = helperWarnUntil, until > Date() {
+            menuBar.statusItem.button?.title = "⚠︎ Helper chưa cài?"
         } else {
             warnUntil = nil
+            helperWarnUntil = nil
             menuBar.render(s, settings: settings)
         }
+
         if !menuOpen {
             menuBar.updateMenu(snapshot: s, settings: settings, target: self,
-                setRPM: #selector(applyRPM), auto: #selector(setAutoAction),
-                presetQuiet: #selector(presetQuiet), presetMax: #selector(presetMax),
-                toggleShow: #selector(toggleShow(_:)), setThreshold: #selector(setThreshold(_:)),
-                quit: #selector(quitApp), rpmField: rpmField)
+                applyFan: #selector(applyFan(_:)),
+                autoFan: #selector(autoFan(_:)),
+                allAuto: #selector(allAutoAction),
+                presetQuiet: #selector(presetQuiet),
+                presetMax: #selector(presetMax),
+                toggleShow: #selector(toggleShow(_:)),
+                setThreshold: #selector(setThreshold(_:)),
+                quit: #selector(quitApp),
+                rpmFields: rpmFields)
             menuBar.statusItem.menu?.delegate = self
         }
     }
@@ -59,20 +76,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) { menuOpen = true }
     func menuDidClose(_ menu: NSMenu) { menuOpen = false }
 
-    @objc private func applyRPM() {
-        guard let s = lastSnapshot, let rpm = Int(rpmField.stringValue) else { return }
-        let applied = fan.setTarget(rpm: rpm, min: Int(s.fanMin), max: Int(s.fanMax))
-        rpmField.stringValue = String(applied)
+    private func flashHelperWarning() {
+        helperWarnUntil = Date().addingTimeInterval(3)
     }
+
+    @objc private func applyFan(_ sender: NSControl) {
+        let i = sender.tag
+        guard let s = lastSnapshot, i < s.fans.count, i < rpmFields.count,
+              let rpm = Int(rpmFields[i].stringValue) else { return }
+        let (applied, resp) = fan.setTarget(fan: i, rpm: rpm,
+                                            min: Int(s.fans[i].min),
+                                            max: Int(s.fans[i].max))
+        rpmFields[i].stringValue = String(applied)
+        if !resp.ok { flashHelperWarning() }
+    }
+
+    @objc private func autoFan(_ sender: NSControl) {
+        let r = fan.setAuto(fan: sender.tag)
+        if !r.ok { flashHelperWarning() }
+    }
+
+    @objc private func allAutoAction() {
+        let r = fan.setAllAuto()
+        if !r.ok { flashHelperWarning() }
+    }
+
     @objc private func presetQuiet() {
         guard let s = lastSnapshot else { return }
-        _ = fan.setTarget(rpm: Int(s.fanMin), min: Int(s.fanMin), max: Int(s.fanMax))
+        var anyFail = false
+        for f in s.fans {
+            let (_, resp) = fan.setTarget(fan: f.index, rpm: Int(f.min), min: Int(f.min), max: Int(f.max))
+            if !resp.ok { anyFail = true }
+        }
+        if anyFail { flashHelperWarning() }
     }
+
     @objc private func presetMax() {
         guard let s = lastSnapshot else { return }
-        _ = fan.setTarget(rpm: Int(s.fanMax), min: Int(s.fanMin), max: Int(s.fanMax))
+        var anyFail = false
+        for f in s.fans {
+            let (_, resp) = fan.setTarget(fan: f.index, rpm: Int(f.max), min: Int(f.min), max: Int(f.max))
+            if !resp.ok { anyFail = true }
+        }
+        if anyFail { flashHelperWarning() }
     }
-    @objc private func setAutoAction() { fan.setAuto() }
+
     @objc private func toggleShow(_ sender: NSMenuItem) {
         switch sender.tag {
         case 0: settings.showTemp.toggle()
@@ -84,13 +132,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.save()
         refresh()
     }
+
     @objc private func setThreshold(_ sender: NSMenuItem) {
         settings.thresholdC = Double(sender.tag)
         settings.save()
         fan.setThreshold(settings.thresholdC)
         refresh()
     }
-    @objc private func quitApp() { fan.setAuto(); NSApp.terminate(nil) }
 
-    func applicationWillTerminate(_ note: Notification) { fan?.setAuto() }
+    @objc private func quitApp() { _ = fan.setAllAuto(); NSApp.terminate(nil) }
+
+    func applicationWillTerminate(_ note: Notification) { _ = fan?.setAllAuto() }
 }

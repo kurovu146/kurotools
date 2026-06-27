@@ -13,40 +13,45 @@ public final class FanController {
     private let commander: FanCommanding
     private var threshold: Double
     private let ttlSeconds: Int
-    public private(set) var isManual = false
-    public private(set) var lastTarget: Int = 0
+    private var manualTargets: [Int: Int] = [:]   // fan → last applied rpm
 
     public init(commander: FanCommanding, threshold: Double, ttlSeconds: Int) {
         self.commander = commander; self.threshold = threshold; self.ttlSeconds = ttlSeconds
     }
 
-    /// Clamp, remember, and send. Returns the actually-applied RPM.
-    @discardableResult
-    public func setTarget(rpm: Int, min: Int, max: Int) -> Int {
-        let applied = clampRPM(rpm, min: min, max: max)
-        _ = commander.send(.setTarget(rpm: applied, ttlSeconds: ttlSeconds))
-        isManual = true; lastTarget = applied
-        return applied
-    }
-
     public func setThreshold(_ c: Double) { threshold = c }
 
-    public func setAuto() {
-        _ = commander.send(.setAuto)
-        isManual = false
+    /// Clamp, remember, send. Returns (appliedRPM, response).
+    @discardableResult
+    public func setTarget(fan: Int, rpm: Int, min: Int, max: Int) -> (rpm: Int, response: FanResponse) {
+        let applied = clampRPM(rpm, min: min, max: max)
+        let r = commander.send(.setTarget(fan: fan, rpm: applied, ttlSeconds: ttlSeconds))
+        manualTargets[fan] = applied
+        return (applied, r)
     }
 
-    /// Called each refresh. Re-sends a heartbeat (setTarget) while manual to keep
-    /// the daemon's TTL alive; auto-reverts to Auto on over-temp.
-    /// Returns true if it auto-reverted this tick.
+    @discardableResult
+    public func setAuto(fan: Int) -> FanResponse {
+        let r = commander.send(.setAuto(fan: fan))
+        manualTargets[fan] = nil
+        return r
+    }
+
+    @discardableResult
+    public func setAllAuto() -> FanResponse {
+        let r = commander.send(.allAuto)
+        manualTargets.removeAll()
+        return r
+    }
+
+    /// Heartbeat each manual fan; over-temp → all Auto. Returns true if it auto-reverted.
     @discardableResult
     public func tick(currentTempC: Double) -> Bool {
-        guard isManual else { return false }
-        if currentTempC >= threshold {
-            setAuto()
-            return true
+        guard !manualTargets.isEmpty else { return false }
+        if currentTempC >= threshold { _ = setAllAuto(); return true }
+        for (fan, target) in manualTargets {
+            _ = commander.send(.setTarget(fan: fan, rpm: target, ttlSeconds: ttlSeconds))
         }
-        _ = commander.send(.setTarget(rpm: lastTarget, ttlSeconds: ttlSeconds))  // heartbeat
         return false
     }
 }

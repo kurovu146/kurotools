@@ -74,19 +74,20 @@ public extension SMC {
         if out.result != 0 { throw SMCError.operationFailed(out.result) }
     }
 
-    /// Set fan mode for both fans. forced=true → manual speed control; false → auto.
-    /// F0Md / F1Md are ui8: 1 = forced, 0 = auto.
-    func setFanMode(_ forced: Bool) throws {
-        let byte: UInt8 = forced ? 1 : 0
-        try write(SMCKey("F0Md"), bytes: [byte])
-        try write(SMCKey("F1Md"), bytes: [byte])
+    /// Number of fans (SMC key "FNum", ui8). Clamped to 1...8; defaults to 1 on failure.
+    func fanCount() -> Int {
+        let n = Int((try? read(SMCKey("FNum")))?.double ?? 1)
+        return Swift.min(Swift.max(n, 1), 8)
     }
 
-    /// Set target RPM for both fans. F0Tg / F1Tg are type `flt` (4-byte IEEE 754, little-endian).
-    /// On M2 Pro: min ≈ 2317 RPM, max = 6800 RPM.
-    func setFanTarget(rpm: Double) throws {
-        try write(SMCKey("F0Tg"), bytes: SMC.fltBytes(rpm))
-        try write(SMCKey("F1Tg"), bytes: SMC.fltBytes(rpm))
+    /// F{fan}Md (ui8): 1 = forced/manual, 0 = auto.
+    func setFanMode(fan: Int, forced: Bool) throws {
+        try write(SMCKey("F\(fan)Md"), bytes: [forced ? 1 : 0])
+    }
+
+    /// F{fan}Tg (flt, little-endian) target RPM.
+    func setFanTarget(fan: Int, rpm: Double) throws {
+        try write(SMCKey("F\(fan)Tg"), bytes: SMC.fltBytes(rpm))
     }
 }
 

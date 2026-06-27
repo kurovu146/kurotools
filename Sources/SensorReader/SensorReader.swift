@@ -2,6 +2,23 @@ import Foundation
 import SMCKit
 import SystemStats
 
+// MARK: - FanReading
+
+public struct FanReading: Equatable {
+    public let index: Int
+    public let rpm: Double
+    public let min: Double
+    public let max: Double
+    public let forced: Bool
+    public init(index: Int, rpm: Double, min: Double, max: Double, forced: Bool) {
+        self.index = index
+        self.rpm = rpm
+        self.min = min
+        self.max = max
+        self.forced = forced
+    }
+}
+
 // MARK: - Snapshot
 
 public struct Snapshot {
@@ -9,26 +26,22 @@ public struct Snapshot {
     public let cpuLoadPct: Double
     public let ramUsedGB: Double
     public let ramTotalGB: Double
-    /// RPM of the faster/louder fan (max of F0Ac and F1Ac).
-    public let fanRPM: Double
-    /// Minimum fan RPM (from F0Mn — both fans are symmetric on M2 Pro).
-    public let fanMin: Double
-    /// Maximum fan RPM (from F0Mx).
-    public let fanMax: Double
-    /// Whether fan is in forced/manual mode (F0Md >= 0.5).
-    public let fanForced: Bool
+    public let fans: [FanReading]
 
     public init(cpuTempC: Double, cpuLoadPct: Double, ramUsedGB: Double, ramTotalGB: Double,
-                fanRPM: Double, fanMin: Double, fanMax: Double, fanForced: Bool) {
+                fans: [FanReading]) {
         self.cpuTempC = cpuTempC
         self.cpuLoadPct = cpuLoadPct
         self.ramUsedGB = ramUsedGB
         self.ramTotalGB = ramTotalGB
-        self.fanRPM = fanRPM
-        self.fanMin = fanMin
-        self.fanMax = fanMax
-        self.fanForced = fanForced
+        self.fans = fans
     }
+
+    /// Loudest fan RPM (for the compact menu-bar readout).
+    public var fanRPM: Double { fans.map(\.rpm).max() ?? 0 }
+
+    /// True if any fan is in forced/manual mode.
+    public var fanForced: Bool { fans.contains { $0.forced } }
 }
 
 // MARK: - Helpers
@@ -84,30 +97,27 @@ public final class SensorReader {
         (try? smc.read(key))?.double ?? 0
     }
 
-    /// Fan RPM = max of F0Ac and F1Ac, ignoring any that are missing or zero.
-    private func fanRPM() -> Double {
-        let f0 = readDouble(SMCKey("F0Ac"))
-        let f1 = readDouble(SMCKey("F1Ac"))
-        let candidates = [f0, f1].filter { $0 > 0 }
-        return candidates.max() ?? 0
-    }
-
     // MARK: Public API
 
     public func snapshot() -> Snapshot {
         let temps = tempKeys().map { readDouble($0) }
         let m = mem.read()
-        let fanMode = readDouble(SMCKey("F0Md"))
+
+        let count = Swift.min(Swift.max(Int(readDouble(SMCKey("FNum"))), 1), 8)
+        let fans = (0..<count).map { i in
+            FanReading(index: i,
+                       rpm:    readDouble(SMCKey("F\(i)Ac")),
+                       min:    readDouble(SMCKey("F\(i)Mn")),
+                       max:    readDouble(SMCKey("F\(i)Mx")),
+                       forced: readDouble(SMCKey("F\(i)Md")) >= 0.5)
+        }
 
         return Snapshot(
             cpuTempC:   averageTemp(temps),
             cpuLoadPct: cpu.usage(),
             ramUsedGB:  m.usedGB,
             ramTotalGB: m.totalGB,
-            fanRPM:     fanRPM(),
-            fanMin:     readDouble(SMCKey("F0Mn")),
-            fanMax:     readDouble(SMCKey("F0Mx")),
-            fanForced:  fanMode >= 0.5
+            fans:       fans
         )
     }
 }

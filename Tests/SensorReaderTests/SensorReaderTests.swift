@@ -31,22 +31,28 @@ final class SensorReaderTests: XCTestCase {
             return SMCValue(key: SMCKey(k), dataType: .flt, bytes: le)
         }
 
-        // Two fans: F0Ac=2400, F1Ac=2600 → fanRPM should be max = 2600
+        // FNum=2 → two fans: F0Ac=2400, F1Ac=2600 → fanRPM should be max = 2600
         // Temp sensors: Tp01=44, Tp05=46 (P-core), Te05=48 (E-core) → avg = (44+46+48)/3 = 46
         fake.keys = [
             SMCKey("Tp01"), SMCKey("Tp05"), SMCKey("Te05"),
+            SMCKey("FNum"),
             SMCKey("F0Ac"), SMCKey("F1Ac"),
             SMCKey("F0Mn"), SMCKey("F0Mx"), SMCKey("F0Md"),
+            SMCKey("F1Mn"), SMCKey("F1Mx"), SMCKey("F1Md"),
         ]
         fake.values = [
             "Tp01": flt("Tp01", 44),
             "Tp05": flt("Tp05", 46),
             "Te05": flt("Te05", 48),
+            "FNum": SMCValue(key: SMCKey("FNum"), dataType: .ui8, bytes: [2]),
             "F0Ac": flt("F0Ac", 2400),
             "F1Ac": flt("F1Ac", 2600),
             "F0Mn": flt("F0Mn", 2317),
             "F0Mx": flt("F0Mx", 6800),
             "F0Md": SMCValue(key: SMCKey("F0Md"), dataType: .ui8, bytes: [1]),
+            "F1Mn": flt("F1Mn", 2317),
+            "F1Mx": flt("F1Mx", 6800),
+            "F1Md": SMCValue(key: SMCKey("F1Md"), dataType: .ui8, bytes: [0]),
         ]
 
         let r = SensorReader(smc: fake, cpu: CPULoadSampler(), mem: MemorySampler(),
@@ -55,10 +61,18 @@ final class SensorReaderTests: XCTestCase {
 
         // cpuTempC = average of 44, 46, 48 = 46
         XCTAssertEqual(s.cpuTempC, 46, accuracy: 0.01)
-        // fanRPM = max(F0Ac=2400, F1Ac=2600) = 2600
+        // Two fans present
+        XCTAssertEqual(s.fans.count, 2)
+        XCTAssertEqual(s.fans[0].rpm, 2400, accuracy: 0.5)
+        XCTAssertEqual(s.fans[1].rpm, 2600, accuracy: 0.5)
+        // fanRPM = max of fans = 2600
         XCTAssertEqual(s.fanRPM, 2600, accuracy: 0.5)
-        XCTAssertEqual(s.fanMin, 2317, accuracy: 0.5)
-        XCTAssertEqual(s.fanMax, 6800, accuracy: 0.5)
+        XCTAssertEqual(s.fans[0].min, 2317, accuracy: 0.5)
+        XCTAssertEqual(s.fans[0].max, 6800, accuracy: 0.5)
+        // fan 0 is in forced mode (F0Md = 1), fan 1 is auto (F1Md = 0)
+        XCTAssertTrue(s.fans[0].forced)
+        XCTAssertFalse(s.fans[1].forced)
+        // fanForced = true because at least one fan is forced
         XCTAssertTrue(s.fanForced)
     }
 
@@ -69,7 +83,7 @@ final class SensorReaderTests: XCTestCase {
             let le = withUnsafeBytes(of: f) { Array($0) }
             return SMCValue(key: SMCKey(k), dataType: .flt, bytes: le)
         }
-        // Only F0Ac present, F1Ac missing → fanRPM = F0Ac
+        // FNum missing → clamped to 1 → only fan 0
         fake.keys = [SMCKey("Tp01"), SMCKey("F0Ac"), SMCKey("F0Mn"), SMCKey("F0Mx"), SMCKey("F0Md")]
         fake.values = [
             "Tp01": flt("Tp01", 50),
@@ -81,6 +95,7 @@ final class SensorReaderTests: XCTestCase {
         let r = SensorReader(smc: fake, cpu: CPULoadSampler(), mem: MemorySampler(),
                              tempKeyPrefixes: ["Tp"])
         let s = r.snapshot()
+        XCTAssertEqual(s.fans.count, 1)
         XCTAssertEqual(s.fanRPM, 3000, accuracy: 0.5)
         XCTAssertFalse(s.fanForced)
     }

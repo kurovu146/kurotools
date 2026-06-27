@@ -18,36 +18,46 @@ final class FanControllerTests: XCTestCase {
     func testSetTargetClampsAndSends() {
         let spy = SpyCommander()
         let fc = FanController(commander: spy, threshold: 95, ttlSeconds: 6)
-        let applied = fc.setTarget(rpm: 9000, min: 1800, max: 6000)
+        let (applied, _) = fc.setTarget(fan: 0, rpm: 9000, min: 1800, max: 6000)
         XCTAssertEqual(applied, 6000)
-        XCTAssertEqual(spy.sent, [.setTarget(rpm: 6000, ttlSeconds: 6)])
+        XCTAssertEqual(spy.sent, [.setTarget(fan: 0, rpm: 6000, ttlSeconds: 6)])
     }
 
     func testTickAutoRevertsAboveThreshold() {
         let spy = SpyCommander()
         let fc = FanController(commander: spy, threshold: 95, ttlSeconds: 6)
-        _ = fc.setTarget(rpm: 2000, min: 1800, max: 6000)
+        _ = fc.setTarget(fan: 0, rpm: 2000, min: 1800, max: 6000)
         spy.sent.removeAll()
         let reverted = fc.tick(currentTempC: 96)
         XCTAssertTrue(reverted)
-        XCTAssertEqual(spy.sent, [.setAuto])
+        XCTAssertEqual(spy.sent, [.allAuto])
     }
 
     func testTickSendsHeartbeatBelowThreshold() {
         let spy = SpyCommander()
         let fc = FanController(commander: spy, threshold: 95, ttlSeconds: 6)
-        _ = fc.setTarget(rpm: 2000, min: 1800, max: 6000)
+        _ = fc.setTarget(fan: 0, rpm: 2000, min: 1800, max: 6000)
         spy.sent.removeAll()
         let reverted = fc.tick(currentTempC: 70)
         XCTAssertFalse(reverted)
-        XCTAssertEqual(spy.sent, [.setTarget(rpm: 2000, ttlSeconds: 6)])  // heartbeat keeps manual alive
+        XCTAssertEqual(spy.sent, [.setTarget(fan: 0, rpm: 2000, ttlSeconds: 6)])  // heartbeat keeps manual alive
     }
 
     func testSetAutoSends() {
         let spy = SpyCommander()
         let fc = FanController(commander: spy, threshold: 95, ttlSeconds: 6)
-        fc.setAuto()
-        XCTAssertEqual(spy.sent, [.setAuto])
+        _ = fc.setAuto(fan: 0)
+        XCTAssertEqual(spy.sent, [.setAuto(fan: 0)])
+    }
+
+    func testSetAllAutoSends() {
+        let spy = SpyCommander()
+        let fc = FanController(commander: spy, threshold: 95, ttlSeconds: 6)
+        _ = fc.setTarget(fan: 0, rpm: 3000, min: 1800, max: 6000)
+        _ = fc.setTarget(fan: 1, rpm: 4000, min: 1800, max: 6800)
+        spy.sent.removeAll()
+        _ = fc.setAllAuto()
+        XCTAssertEqual(spy.sent, [.allAuto])
     }
 
     func testFanCommandAndResponseCodableRoundTrip() throws {
@@ -56,8 +66,9 @@ final class FanControllerTests: XCTestCase {
 
         // FanCommand round-trips
         let commands: [FanCommand] = [
-            .setTarget(rpm: 3000, ttlSeconds: 6),
-            .setAuto,
+            .setTarget(fan: 1, rpm: 3000, ttlSeconds: 6),
+            .setAuto(fan: 0),
+            .allAuto,
             .ping,
         ]
         for cmd in commands {
