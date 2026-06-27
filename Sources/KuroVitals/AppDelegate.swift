@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let rpmField = NSTextField(string: "")
     private var lastSnapshot: Snapshot?
     private var menuOpen = false
+    private var warnUntil: Date?
 
     func applicationDidFinishLaunching(_ note: Notification) {
         guard let smc = try? SMC() else {
@@ -37,7 +38,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refresh() {
         let s = reader.snapshot()
         lastSnapshot = s
-        menuBar.render(s, settings: settings)
+        let reverted = fan.tick(currentTempC: s.cpuTempC, currentlyForced: s.fanForced)
+        if reverted { warnUntil = Date().addingTimeInterval(3) }
+        if let until = warnUntil, until > Date() {
+            menuBar.statusItem.button?.title = "⚠︎ Quá nhiệt → Auto"
+        } else {
+            warnUntil = nil
+            menuBar.render(s, settings: settings)
+        }
         if !menuOpen {
             menuBar.updateMenu(snapshot: s, settings: settings, target: self,
                 setRPM: #selector(applyRPM), auto: #selector(setAutoAction),
@@ -46,7 +54,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 quit: #selector(quitApp), rpmField: rpmField)
             menuBar.statusItem.menu?.delegate = self
         }
-        fan.tick(currentTempC: s.cpuTempC, currentlyForced: s.fanForced)
     }
 
     func menuWillOpen(_ menu: NSMenu) { menuOpen = true }

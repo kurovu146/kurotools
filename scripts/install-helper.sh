@@ -17,6 +17,7 @@ sudo tee "$PLIST" >/dev/null <<'EOF'
   <array><string>/usr/local/libexec/kurovitals-helper</string></array>
   <key>KeepAlive</key><true/>
   <key>RunAtLoad</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
   <key>StandardErrorPath</key><string>/var/log/kurovitals-helper.log</string>
 </dict>
 </plist>

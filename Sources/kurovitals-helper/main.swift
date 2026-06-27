@@ -14,7 +14,10 @@ final class Daemon {
     private var deadline: Date?
     private let smcQueue = DispatchQueue(label: "com.kurovitals.smc")  // serial
 
-    init() throws { smc = try SMC() }
+    init() throws {
+        smc = try SMC()
+        try? smc.setFanMode(false)   // boot into known-safe Auto; a live GUI re-forces on its next heartbeat
+    }
 
     func handle(_ cmd: FanCommand) -> FanResponse {
         switch cmd {
@@ -73,6 +76,10 @@ final class Daemon {
 func makeSocket(path: String) -> Int32 {
     unlink(path)
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else {
+        FileHandle.standardError.write(Data("socket() failed\n".utf8))
+        exit(1)
+    }
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
     let bytes = path.utf8CString
@@ -86,14 +93,21 @@ func makeSocket(path: String) -> Int32 {
             }
         }
     }
-    _ = withUnsafePointer(to: &addr) {
+    let bindResult = withUnsafePointer(to: &addr) {
         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
             bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
         }
     }
+    guard bindResult == 0 else {
+        FileHandle.standardError.write(Data("bind() failed on \(path)\n".utf8))
+        exit(1)
+    }
     // Allow the console user to connect (single-user machine).
     chmod(path, 0o666)
-    listen(fd, 8)
+    guard listen(fd, 8) == 0 else {
+        FileHandle.standardError.write(Data("listen() failed\n".utf8))
+        exit(1)
+    }
     return fd
 }
 
