@@ -13,6 +13,10 @@ struct SMCParamStruct {
     }
     struct SMCKeyInfoData {
         var dataSize: UInt32 = 0; var dataType: UInt32 = 0; var dataAttributes: UInt8 = 0
+        // 3 bytes explicit padding: Swift omits C's trailing struct padding, which shifts
+        // subsequent fields by 4 bytes and causes kIOReturnBadArgument (-536870206).
+        // With this pad, stride==12 in both C and Swift, giving correct 80-byte total.
+        var _pad: (UInt8, UInt8, UInt8) = (0, 0, 0)
     }
     var key: UInt32 = 0
     var vers = SMCVersion()
