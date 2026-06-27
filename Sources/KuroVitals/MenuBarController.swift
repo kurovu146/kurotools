@@ -1,24 +1,21 @@
 import AppKit
 import SensorReader
 
-public func formatBar(_ s: Snapshot, _ settings: Settings) -> String {
-    var parts: [String] = []
-    if settings.showTemp { parts.append("\(Int(s.cpuTempC.rounded()))°") }
-    if settings.showCPU  { parts.append("\(Int(s.cpuLoadPct.rounded()))%") }
-    if settings.showRAM  { parts.append(String(format: "%.1fG", s.ramUsedGB)) }
-    if settings.showFan  { parts.append("🌀\(Int(s.fanRPM.rounded()))") }
-    return parts.joined(separator: " ")
-}
+/// The menu-bar label is a single "K" icon; all metrics live in the dropdown.
+public let kMenuBarIcon = "K"
 
 @MainActor
 public final class MenuBarController {
     public let statusItem: NSStatusItem
     public init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        statusItem.button?.font = NSFont.boldSystemFont(ofSize: 14)
+        statusItem.button?.title = kMenuBarIcon
     }
+    /// The bar always shows the "K" icon; click it to see the metrics dropdown.
+    /// Params are kept for call-site compatibility (and a possible future numeric mode).
     public func render(_ s: Snapshot, settings: Settings) {
-        statusItem.button?.title = formatBar(s, settings)
+        statusItem.button?.title = kMenuBarIcon
     }
 }
 
@@ -62,9 +59,9 @@ public extension MenuBarController {
             item.isEnabled = false
             menu.addItem(item)
         }
-        info(String(format: "CPU temp: %.0f°C", s.cpuTempC))
-        info(String(format: "CPU load: %.0f%%", s.cpuLoadPct))
-        info(String(format: "RAM: %.1f / %.0f GB", s.ramUsedGB, s.ramTotalGB))
+        if settings.showTemp { info(String(format: "CPU temp: %.0f°C", s.cpuTempC)) }
+        if settings.showCPU  { info(String(format: "CPU load: %.0f%%", s.cpuLoadPct)) }
+        if settings.showRAM  { info(String(format: "RAM: %.1f / %.0f GB", s.ramUsedGB, s.ramTotalGB)) }
 
         // ── 2. Separator ──────────────────────────────────────────────────────
         menu.addItem(.separator())
@@ -128,11 +125,11 @@ public extension MenuBarController {
         let settingsMenu   = NSMenu(title: "Settings")
 
         // Show-X checkable items (tag = 0…3)
+        // Toggle which metric rows appear in this dropdown (fan rows are controls — always shown).
         let showRows: [(String, Bool, Int)] = [
             ("Show Temp", settings.showTemp, 0),
             ("Show CPU",  settings.showCPU,  1),
             ("Show RAM",  settings.showRAM,  2),
-            ("Show Fan",  settings.showFan,  3),
         ]
         for (title, isOn, tag) in showRows {
             let item = NSMenuItem(title: title, action: toggleShow, keyEquivalent: "")
