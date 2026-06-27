@@ -10,6 +10,12 @@ public final class HelperClient: FanCommanding {
         guard fd >= 0 else { return FanResponse(ok: false, message: "socket() failed") }
         defer { close(fd) }
 
+        // Receive timeout: if the daemon connects but stalls, read() returns -1/EAGAIN
+        // instead of hanging the (possibly main-thread) caller. The `guard n > 0` below
+        // then yields the fail-soft response.
+        var tv = timeval(tv_sec: 2, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = socketPath.utf8CString
