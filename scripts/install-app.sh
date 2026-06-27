@@ -12,10 +12,18 @@ cat > "$PLIST" <<EOF
   <key>Label</key><string>com.kuro.kurovitals.app</string>
   <key>ProgramArguments</key><array><string>$BIN</string></array>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <!-- Restart only on crash (non-zero exit); a clean Quit from the menu stays quit. -->
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>10</integer>
 </dict>
 </plist>
 EOF
 launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load "$PLIST"
-echo "KuroVitals will start at login."
+sleep 1
+if pgrep -f "$BIN" >/dev/null; then
+  echo "✓ KuroVitals is running in the background (and will start at login)."
+  echo "  Quit from the menu bar to stop it; ./scripts/uninstall-app.sh to remove autostart."
+else
+  echo "⚠ KuroVitals didn't start. Run '$BIN' directly to see any error."
+fi
