@@ -49,4 +49,27 @@ final class FanControllerTests: XCTestCase {
         fc.setAuto()
         XCTAssertEqual(spy.sent, [.setAuto])
     }
+
+    func testFanCommandAndResponseCodableRoundTrip() throws {
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+
+        // FanCommand round-trips
+        let commands: [FanCommand] = [
+            .setTarget(rpm: 3000, ttlSeconds: 6),
+            .setAuto,
+            .ping,
+        ]
+        for cmd in commands {
+            let data = try encoder.encode(cmd)
+            let decoded = try decoder.decode(FanCommand.self, from: data)
+            XCTAssertEqual(decoded, cmd, "round-trip failed for \(cmd)")
+        }
+
+        // FanResponse round-trip
+        let response = FanResponse(ok: true, message: "pong")
+        let data = try encoder.encode(response)
+        let decoded = try decoder.decode(FanResponse.self, from: data)
+        XCTAssertEqual(decoded, response)
+    }
 }
