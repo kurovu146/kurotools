@@ -34,7 +34,8 @@ public final class FanController {
         isManual = false
     }
 
-    /// Called each refresh. Auto-reverts on over-temp while in manual mode.
+    /// Called each refresh. Re-sends a heartbeat (setTarget) while manual to keep
+    /// the daemon's TTL alive; auto-reverts to Auto on over-temp.
     /// Returns true if it auto-reverted this tick.
     @discardableResult
     public func tick(currentTempC: Double, currentlyForced: Bool) -> Bool {
@@ -43,6 +44,7 @@ public final class FanController {
             setAuto()
             return true
         }
+        _ = commander.send(.setTarget(rpm: lastTarget, ttlSeconds: ttlSeconds))  // heartbeat
         return false
     }
 }

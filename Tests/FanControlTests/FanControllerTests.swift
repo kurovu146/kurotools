@@ -33,14 +33,14 @@ final class FanControllerTests: XCTestCase {
         XCTAssertEqual(spy.sent, [.setAuto])
     }
 
-    func testTickNoRevertBelowThreshold() {
+    func testTickSendsHeartbeatBelowThreshold() {
         let spy = SpyCommander()
         let fc = FanController(commander: spy, threshold: 95, ttlSeconds: 6)
         _ = fc.setTarget(rpm: 2000, min: 1800, max: 6000)
         spy.sent.removeAll()
         let reverted = fc.tick(currentTempC: 70, currentlyForced: true)
         XCTAssertFalse(reverted)
-        XCTAssertTrue(spy.sent.isEmpty)
+        XCTAssertEqual(spy.sent, [.setTarget(rpm: 2000, ttlSeconds: 6)])  // heartbeat keeps manual alive
     }
 
     func testSetAutoSends() {
