@@ -17,6 +17,18 @@ public struct Snapshot {
     public let fanMax: Double
     /// Whether fan is in forced/manual mode (F0Md >= 0.5).
     public let fanForced: Bool
+
+    public init(cpuTempC: Double, cpuLoadPct: Double, ramUsedGB: Double, ramTotalGB: Double,
+                fanRPM: Double, fanMin: Double, fanMax: Double, fanForced: Bool) {
+        self.cpuTempC = cpuTempC
+        self.cpuLoadPct = cpuLoadPct
+        self.ramUsedGB = ramUsedGB
+        self.ramTotalGB = ramTotalGB
+        self.fanRPM = fanRPM
+        self.fanMin = fanMin
+        self.fanMax = fanMax
+        self.fanForced = fanForced
+    }
 }
 
 // MARK: - Helpers
