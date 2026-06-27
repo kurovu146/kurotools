@@ -41,27 +41,32 @@ dump(prefix: "Te", label: "Efficiency temps")
 // MUST be run as: sudo .build/debug/smc-dump --test-high
 if CommandLine.arguments.contains("--test-high") {
     print("\n== Fan HIGH Write Test (empirical readback, all \(fanN) fan(s)) ==")
-    let f0Before = (try? smc.read(SMCKey("F0Ac")))?.double ?? -1
-    let f1Before = (try? smc.read(SMCKey("F1Ac")))?.double ?? -1
+    let fansBefore = (0..<fanN).map { i in (try? smc.read(SMCKey("F\(i)Ac")))?.double ?? -1 }
     let fMax = (try? smc.read(SMCKey("F0Mx")))?.double ?? 6800
     let target = min(5500, fMax)
-    print(String(format: "  BEFORE: F0Ac=%.0f  F1Ac=%.0f RPM  (target will be %.0f)",
-                 f0Before, f1Before, target))
+    let beforeDesc = fansBefore.enumerated().map { String(format: "F%dAc=%.0f", $0.offset, $0.element) }.joined(separator: "  ")
+    print("  BEFORE: \(beforeDesc) RPM  (target will be \(Int(target)))")
     do {
         for f in 0..<fanN { try smc.setFanMode(fan: f, forced: true) }
         for f in 0..<fanN { try smc.setFanTarget(fan: f, rpm: target) }
         print("  Forced mode + target \(Int(target)) RPM written. Sampling actual RPM for 8s:")
         for i in 1...8 {
             sleep(1)
-            let f0 = (try? smc.read(SMCKey("F0Ac")))?.double ?? -1
-            let f1 = (try? smc.read(SMCKey("F1Ac")))?.double ?? -1
-            print(String(format: "    t=%ds  F0Ac=%.0f  F1Ac=%.0f RPM", i, f0, f1))
+            let readback = (0..<fanN).map { f -> String in
+                let rpm = (try? smc.read(SMCKey("F\(f)Ac")))?.double ?? -1
+                return String(format: "F%dAc=%.0f", f, rpm)
+            }.joined(separator: "  ")
+            print("    t=\(i)s  \(readback) RPM")
         }
         revertAll()
-        let f0After = (try? smc.read(SMCKey("F0Ac")))?.double ?? -1
-        print(String(format: "  Reverted to Auto. F0Ac now=%.0f", f0After))
-        print("  VERDICT: if F0Ac/F1Ac rose toward \(Int(target)) above, fan control WORKS.")
-        print("           if they stayed near \(Int(f0Before)), firmware IGNORES writes (monitor-only).")
+        let fansAfter = (0..<fanN).map { f -> String in
+            let rpm = (try? smc.read(SMCKey("F\(f)Ac")))?.double ?? -1
+            return String(format: "F%dAc=%.0f", f, rpm)
+        }.joined(separator: "  ")
+        print("  Reverted to Auto. \(fansAfter)")
+        let keyDesc = (0..<fanN).map { "F\($0)Ac" }.joined(separator: "/")
+        print("  VERDICT: if \(keyDesc) rose toward \(Int(target)) above, fan control WORKS.")
+        print("           if they stayed near \(Int(fansBefore[0])), firmware IGNORES writes (monitor-only).")
     } catch {
         print("  WRITE FAILED: \(error)")
         revertAll()

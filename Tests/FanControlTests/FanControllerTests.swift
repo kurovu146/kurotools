@@ -28,8 +28,7 @@ final class FanControllerTests: XCTestCase {
         let fc = FanController(commander: spy, threshold: 95, ttlSeconds: 6)
         _ = fc.setTarget(fan: 0, rpm: 2000, min: 1800, max: 6000)
         spy.sent.removeAll()
-        let reverted = fc.tick(currentTempC: 96)
-        XCTAssertTrue(reverted)
+        XCTAssertTrue(fc.tick(currentTempC: 96).reverted)
         XCTAssertEqual(spy.sent, [.allAuto])
     }
 
@@ -38,8 +37,7 @@ final class FanControllerTests: XCTestCase {
         let fc = FanController(commander: spy, threshold: 95, ttlSeconds: 6)
         _ = fc.setTarget(fan: 0, rpm: 2000, min: 1800, max: 6000)
         spy.sent.removeAll()
-        let reverted = fc.tick(currentTempC: 70)
-        XCTAssertFalse(reverted)
+        XCTAssertFalse(fc.tick(currentTempC: 70).reverted)
         XCTAssertEqual(spy.sent, [.setTarget(fan: 0, rpm: 2000, ttlSeconds: 6)])  // heartbeat keeps manual alive
     }
 

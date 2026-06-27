@@ -26,7 +26,7 @@ public final class FanController {
     public func setTarget(fan: Int, rpm: Int, min: Int, max: Int) -> (rpm: Int, response: FanResponse) {
         let applied = clampRPM(rpm, min: min, max: max)
         let r = commander.send(.setTarget(fan: fan, rpm: applied, ttlSeconds: ttlSeconds))
-        manualTargets[fan] = applied
+        if r.ok { manualTargets[fan] = applied }
         return (applied, r)
     }
 
@@ -44,14 +44,15 @@ public final class FanController {
         return r
     }
 
-    /// Heartbeat each manual fan; over-temp → all Auto. Returns true if it auto-reverted.
+    /// Heartbeat each manual fan; over-temp → all Auto. Returns (reverted, response).
     @discardableResult
-    public func tick(currentTempC: Double) -> Bool {
-        guard !manualTargets.isEmpty else { return false }
-        if currentTempC >= threshold { _ = setAllAuto(); return true }
-        for (fan, target) in manualTargets {
-            _ = commander.send(.setTarget(fan: fan, rpm: target, ttlSeconds: ttlSeconds))
+    public func tick(currentTempC: Double) -> (reverted: Bool, response: FanResponse?) {
+        guard !manualTargets.isEmpty else { return (false, nil) }
+        if currentTempC >= threshold {
+            let r = setAllAuto()
+            return (true, r)
         }
-        return false
+        for (fan, target) in manualTargets { _ = commander.send(.setTarget(fan: fan, rpm: target, ttlSeconds: ttlSeconds)) }
+        return (false, nil)
     }
 }

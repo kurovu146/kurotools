@@ -44,8 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             rpmFields = s.fans.map { _ in NSTextField(string: "") }
         }
 
-        let reverted = fan.tick(currentTempC: s.cpuTempC)
-        if reverted { warnUntil = Date().addingTimeInterval(3) }
+        let tickResult = fan.tick(currentTempC: s.cpuTempC)
+        if tickResult.reverted {
+            warnUntil = Date().addingTimeInterval(3)
+            if let r = tickResult.response, !r.ok { flashHelperWarning() }
+        }
 
         // Title priority: over-temp warning > helper warning > normal readout.
         if let until = warnUntil, until > Date() {
@@ -92,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func autoFan(_ sender: NSControl) {
+        guard let s = lastSnapshot, sender.tag >= 0, sender.tag < s.fans.count else { return }
         let r = fan.setAuto(fan: sender.tag)
         if !r.ok { flashHelperWarning() }
     }
