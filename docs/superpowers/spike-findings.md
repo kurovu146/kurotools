@@ -140,21 +140,23 @@ the hottest P-core cluster.
 
 ---
 
-## Fan Write Verification (PENDING human sudo run)
+## Fan Write Verification — ✅ CONFIRMED WORKING (2026-06-27)
 
-The write path is implemented in Task 5 (`SMC.write`, `setFanMode`, `setFanTarget` — both fans
-F0 and F1). The `smc-dump` tool now has a `--test-write` branch that reads current state, bumps
-target to `F0Mn + 200` RPM, writes forced mode + target to both fans, waits 5 s, then reverts.
+The write path (Task 5: `SMC.write`, `setFanMode`, `setFanTarget` — both fans F0 and F1) was
+verified on the real M2 Pro by a human running `sudo .build/debug/smc-dump --test-high`, which
+forces a high target (5500 RPM) and reads back **actual** fan RPM each second.
 
-To verify, run as root (no automated run — requires human to listen for fan change):
+**Result: fan control WORKS.** Actual `F0Ac` climbed from ~2400 RPM toward the 5500 target
+(observed: t=1s 2400 → t=2s 3200 → … → 5500), then returned to Auto on revert. The firmware
+HONORS SMC fan writes on this machine — the GUI control path (helper daemon + RPM UI) is viable.
 
+Notes:
+- The initial `--test-write` (target = F0Mn+200 ≈ 2517 RPM) was inaudible/ambiguous because it
+  barely exceeded the idle speed; the `--test-high` empirical readback is the reliable check.
+- Root IS required for writes (writes from a normal-user process fail); confirms the
+  privileged-helper architecture (Tasks 10–12).
+
+Safety fallback if a future test is interrupted mid-run:
 ```bash
-sudo swift run smc-dump --test-write
+sudo .build/debug/smc-dump --revert
 ```
-
-Safety fallback if interrupted mid-test:
-```bash
-sudo swift run smc-dump --revert
-```
-
-**Result:** _[to be filled in by human after running the above]_

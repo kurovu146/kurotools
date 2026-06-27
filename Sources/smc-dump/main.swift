@@ -30,6 +30,41 @@ dump(prefix: "Tc", label: "CPU temps")
 dump(prefix: "Tg", label: "GPU temps")
 dump(prefix: "Te", label: "Efficiency temps")
 
+// High write-test: force a CLEARLY high RPM (~5500) and read back ACTUAL fan speed
+// each second to prove (empirically, not by ear) whether the firmware honors the write.
+// MUST be run as: sudo .build/debug/smc-dump --test-high
+if CommandLine.arguments.contains("--test-high") {
+    print("\n== Fan HIGH Write Test (empirical readback) ==")
+    let f0Before = (try? smc.read(SMCKey("F0Ac")))?.double ?? -1
+    let f1Before = (try? smc.read(SMCKey("F1Ac")))?.double ?? -1
+    let fMax = (try? smc.read(SMCKey("F0Mx")))?.double ?? 6800
+    let target = min(5500, fMax)
+    print(String(format: "  BEFORE: F0Ac=%.0f  F1Ac=%.0f RPM  (target will be %.0f)",
+                 f0Before, f1Before, target))
+    do {
+        try smc.setFanMode(true)
+        try smc.setFanTarget(rpm: target)
+        print("  Forced mode + target \(Int(target)) RPM written. Sampling actual RPM for 8s:")
+        for i in 1...8 {
+            sleep(1)
+            let f0 = (try? smc.read(SMCKey("F0Ac")))?.double ?? -1
+            let f1 = (try? smc.read(SMCKey("F1Ac")))?.double ?? -1
+            print(String(format: "    t=%ds  F0Ac=%.0f  F1Ac=%.0f RPM", i, f0, f1))
+        }
+        try smc.setFanMode(false)
+        let f0After = (try? smc.read(SMCKey("F0Ac")))?.double ?? -1
+        print(String(format: "  Reverted to Auto. F0Ac now=%.0f", f0After))
+        let climbed = (try? smc.read(SMCKey("F0Ac")))?.double ?? 0
+        _ = climbed
+        print("  VERDICT: if F0Ac/F1Ac rose toward \(Int(target)) above, fan control WORKS.")
+        print("           if they stayed near \(Int(f0Before)), firmware IGNORES writes (monitor-only).")
+    } catch {
+        print("  WRITE FAILED: \(error)")
+        try? smc.setFanMode(false)
+    }
+    exit(0)
+}
+
 // Write-test: verify SMC fan control requires root, and that flt encoding is correct.
 // MUST be run as: sudo swift run smc-dump --test-write
 // DO NOT run this without sudo — writes will fail (expected).
