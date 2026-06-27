@@ -137,3 +137,24 @@ the hottest P-core cluster.
 - `FBAD` (type=????, unknown): SMCKit reports `.unknown` data type; read returns 0. Not used.
 - `FOff` = 1: fans CAN spin down to zero (fan-off feature) — relevant for Task 5 min-speed logic.
 - All fan speed values (Ac, Mn, Mx, Tg) are `flt` on M2 Pro (vs `fpe2` on Intel).
+
+---
+
+## Fan Write Verification (PENDING human sudo run)
+
+The write path is implemented in Task 5 (`SMC.write`, `setFanMode`, `setFanTarget` — both fans
+F0 and F1). The `smc-dump` tool now has a `--test-write` branch that reads current state, bumps
+target to `F0Mn + 200` RPM, writes forced mode + target to both fans, waits 5 s, then reverts.
+
+To verify, run as root (no automated run — requires human to listen for fan change):
+
+```bash
+sudo swift run smc-dump --test-write
+```
+
+Safety fallback if interrupted mid-test:
+```bash
+sudo swift run smc-dump --revert
+```
+
+**Result:** _[to be filled in by human after running the above]_
