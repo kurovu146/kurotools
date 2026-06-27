@@ -11,7 +11,7 @@ public func clampRPM(_ rpm: Int, min: Int, max: Int) -> Int {
 
 public final class FanController {
     private let commander: FanCommanding
-    private let threshold: Double
+    private var threshold: Double
     private let ttlSeconds: Int
     public private(set) var isManual = false
     public private(set) var lastTarget: Int = 0
@@ -28,6 +28,8 @@ public final class FanController {
         isManual = true; lastTarget = applied
         return applied
     }
+
+    public func setThreshold(_ c: Double) { threshold = c }
 
     public func setAuto() {
         _ = commander.send(.setAuto)

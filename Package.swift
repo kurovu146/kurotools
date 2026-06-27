@@ -15,7 +15,7 @@ let package = Package(
             dependencies: ["SMCKit", "HelperProtocol"]),
         .executableTarget(
             name: "KuroVitals",
-            dependencies: ["SensorReader", "FanControl", "HelperProtocol"]),
+            dependencies: ["SMCKit", "SystemStats", "SensorReader", "FanControl", "HelperProtocol"]),
         .executableTarget(name: "smc-dump", dependencies: ["SMCKit"]),
         .testTarget(name: "SMCKitTests", dependencies: ["SMCKit"]),
         .testTarget(name: "SystemStatsTests", dependencies: ["SystemStats"]),
