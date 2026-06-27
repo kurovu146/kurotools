@@ -1,5 +1,10 @@
 import Foundation
 
+public protocol SMCReading {
+    func read(_ key: SMCKey) throws -> SMCValue
+    func allKeys() throws -> [SMCKey]
+}
+
 public enum SMCError: Error, Equatable {
     case driverNotFound
     case openFailed(kern_return_t)
@@ -38,6 +43,8 @@ public final class SMC {
         return SMCValue(key: key, dataType: SMCDataType(fourCC: info.type), bytes: bytes)
     }
 }
+
+extension SMC: SMCReading {}
 
 // Re-export so `SMCKit.version` references in earlier test keep working.
 public enum SMCKit { public static let version = SMC.version }
