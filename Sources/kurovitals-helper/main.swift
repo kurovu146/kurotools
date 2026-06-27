@@ -2,11 +2,17 @@ import Foundation
 import SMCKit
 import HelperProtocol
 
-// Single-threaded accept loop + a 1 Hz watchdog timer on a background queue.
+// All SMC writes and deadline mutations are serialised on one serial queue.
+// This eliminates two concurrency defects that existed in the NSLock-based design:
+//   1. SMC connection (io_connect_t) accessed from handle() on the main thread
+//      AND from watchdogTick()/signal handlers on a background queue — unserialized.
+//   2. TOCTOU in watchdogTick: read deadline → release lock → re-acquire to clear.
+//      Between those two locks, handle(.setTarget) could set a fresh deadline that
+//      the watchdog then nullified, causing the fan to never auto-revert (safety bug).
 final class Daemon {
     let smc: SMC
-    var deadline: Date?          // when the current manual-mode window expires
-    let lock = NSLock()
+    private var deadline: Date?
+    private let smcQueue = DispatchQueue(label: "com.kurovitals.smc")  // serial
 
     init() throws { smc = try SMC() }
 
@@ -16,41 +22,49 @@ final class Daemon {
             return FanResponse(ok: true, message: "pong")
 
         case .setAuto:
-            do {
-                try smc.setFanMode(false)
-                lock.lock(); deadline = nil; lock.unlock()
-                return FanResponse(ok: true, message: "auto")
-            } catch {
-                return FanResponse(ok: false, message: "\(error)")
+            return smcQueue.sync {
+                do {
+                    try smc.setFanMode(false)
+                    deadline = nil
+                    return FanResponse(ok: true, message: "auto")
+                } catch {
+                    return FanResponse(ok: false, message: "\(error)")
+                }
             }
 
         case let .setTarget(rpm, ttl):
             // Validate strictly — this daemon runs as root.
-            guard rpm > 0, rpm < 12000, ttl >= 1, ttl <= 60 else {
+            guard rpm > 0, rpm < 12000, ttl > 0, ttl <= 60 else {
                 return FanResponse(ok: false, message: "invalid args: rpm must be 1..<12000, ttl must be 1...60")
             }
-            do {
-                try smc.setFanMode(true)
-                try smc.setFanTarget(rpm: Double(rpm))
-                lock.lock()
-                deadline = Date().addingTimeInterval(TimeInterval(ttl))
-                lock.unlock()
-                return FanResponse(ok: true, message: "target \(rpm)")
-            } catch {
-                return FanResponse(ok: false, message: "\(error)")
+            return smcQueue.sync {
+                do {
+                    try smc.setFanMode(true)
+                    try smc.setFanTarget(rpm: Double(rpm))
+                    deadline = Date().addingTimeInterval(TimeInterval(ttl))
+                    return FanResponse(ok: true, message: "target \(rpm)")
+                } catch {
+                    return FanResponse(ok: false, message: "\(error)")
+                }
             }
         }
     }
 
+    // Called by the 1 Hz watchdog timer. The check, clear, and SMC revert all
+    // happen atomically on smcQueue — no TOCTOU between reading and clearing deadline.
     func watchdogTick() {
-        lock.lock(); let d = deadline; lock.unlock()
-        if let d = d, Date() > d {
-            try? smc.setFanMode(false)
-            lock.lock(); deadline = nil; lock.unlock()
-            FileHandle.standardError.write(
-                Data("watchdog: reverted to Auto\n".utf8)
-            )
+        smcQueue.async {
+            if let d = self.deadline, Date() > d {
+                self.deadline = nil
+                try? self.smc.setFanMode(false)
+                FileHandle.standardError.write(Data("watchdog: reverted to Auto\n".utf8))
+            }
         }
+    }
+
+    // For signal handlers: revert synchronously so the caller can exit immediately.
+    func revertNow() {
+        smcQueue.sync { try? smc.setFanMode(false) }
     }
 }
 
@@ -62,6 +76,9 @@ func makeSocket(path: String) -> Int32 {
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
     let bytes = path.utf8CString
+    // Guard against paths that would overflow sun_path (104 bytes on Darwin).
+    precondition(bytes.count <= MemoryLayout.size(ofValue: addr.sun_path),
+                 "Socket path too long for sockaddr_un.sun_path")
     withUnsafeMutablePointer(to: &addr.sun_path) {
         $0.withMemoryRebound(to: CChar.self, capacity: bytes.count) { dst in
             bytes.withUnsafeBufferPointer {
@@ -104,14 +121,14 @@ signal(SIGINT, SIG_IGN)
 
 let sigtermSrc = DispatchSource.makeSignalSource(signal: SIGTERM, queue: watchdogQueue)
 sigtermSrc.setEventHandler {
-    try? daemon.smc.setFanMode(false)
+    daemon.revertNow()
     exit(0)
 }
 sigtermSrc.resume()
 
 let sigintSrc = DispatchSource.makeSignalSource(signal: SIGINT, queue: watchdogQueue)
 sigintSrc.setEventHandler {
-    try? daemon.smc.setFanMode(false)
+    daemon.revertNow()
     exit(0)
 }
 sigintSrc.resume()
