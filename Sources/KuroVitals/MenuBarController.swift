@@ -71,10 +71,11 @@ public extension MenuBarController {
         // tag encodes (fan, rpm) as `fan * 100000 + rpm` (rpm < 100000, fan small).
         let rpmStep = 500
         for (i, f) in s.fans.enumerated() {
-            let modeLabel = f.forced ? "tay" : "auto"
-            let parent = NSMenuItem(
-                title: "Quạt \(i + 1): \(Int(f.rpm)) rpm (\(modeLabel))",
-                action: nil, keyEquivalent: "")
+            // Title shows actual rpm; when forced, also the requested target.
+            let title = f.forced
+                ? "Quạt \(i + 1): \(Int(f.rpm)) rpm → đặt \(Int(f.target))"
+                : "Quạt \(i + 1): \(Int(f.rpm)) rpm (auto)"
+            let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             let sub = NSMenu(title: "Quạt \(i + 1)")
 
             let autoItem = NSMenuItem(title: "Auto (hệ thống)", action: autoFan, keyEquivalent: "")
@@ -92,7 +93,7 @@ public extension MenuBarController {
                 let item = NSMenuItem(title: "\(rpm) rpm", action: applyFanPreset, keyEquivalent: "")
                 item.tag = i * 100000 + rpm
                 item.target = target
-                if f.forced, abs(f.rpm - Double(rpm)) < Double(rpmStep) / 2 { item.state = .on }
+                if f.forced, abs(f.target - Double(rpm)) < Double(rpmStep) / 2 { item.state = .on }
                 sub.addItem(item)
                 rpm += rpmStep
             }
@@ -100,7 +101,7 @@ public extension MenuBarController {
                 let maxItem = NSMenuItem(title: "Max (\(hi) rpm)", action: applyFanPreset, keyEquivalent: "")
                 maxItem.tag = i * 100000 + hi
                 maxItem.target = target
-                if f.forced, f.rpm >= Double(hi) - Double(rpmStep) / 2 { maxItem.state = .on }
+                if f.forced, f.target >= Double(hi) - Double(rpmStep) / 2 { maxItem.state = .on }
                 sub.addItem(maxItem)
             }
 

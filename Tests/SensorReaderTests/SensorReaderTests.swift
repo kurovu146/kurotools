@@ -37,6 +37,7 @@ final class SensorReaderTests: XCTestCase {
             SMCKey("Tp01"), SMCKey("Tp05"), SMCKey("Te05"),
             SMCKey("FNum"),
             SMCKey("F0Ac"), SMCKey("F1Ac"),
+            SMCKey("F0Tg"), SMCKey("F1Tg"),
             SMCKey("F0Mn"), SMCKey("F0Mx"), SMCKey("F0Md"),
             SMCKey("F1Mn"), SMCKey("F1Mx"), SMCKey("F1Md"),
         ]
@@ -47,6 +48,8 @@ final class SensorReaderTests: XCTestCase {
             "FNum": SMCValue(key: SMCKey("FNum"), dataType: .ui8, bytes: [2]),
             "F0Ac": flt("F0Ac", 2400),
             "F1Ac": flt("F1Ac", 2600),
+            "F0Tg": flt("F0Tg", 5000),   // fan 0 forced to a higher target than actual
+            "F1Tg": flt("F1Tg", 2600),
             "F0Mn": flt("F0Mn", 2317),
             "F0Mx": flt("F0Mx", 6800),
             "F0Md": SMCValue(key: SMCKey("F0Md"), dataType: .ui8, bytes: [1]),
@@ -65,6 +68,9 @@ final class SensorReaderTests: XCTestCase {
         XCTAssertEqual(s.fans.count, 2)
         XCTAssertEqual(s.fans[0].rpm, 2400, accuracy: 0.5)
         XCTAssertEqual(s.fans[1].rpm, 2600, accuracy: 0.5)
+        // target (F{i}Tg) is read separately from actual (F{i}Ac)
+        XCTAssertEqual(s.fans[0].target, 5000, accuracy: 0.5)
+        XCTAssertEqual(s.fans[1].target, 2600, accuracy: 0.5)
         // fanRPM = max of fans = 2600
         XCTAssertEqual(s.fanRPM, 2600, accuracy: 0.5)
         XCTAssertEqual(s.fans[0].min, 2317, accuracy: 0.5)

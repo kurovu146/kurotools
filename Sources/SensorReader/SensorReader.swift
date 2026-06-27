@@ -6,13 +6,17 @@ import SystemStats
 
 public struct FanReading: Equatable {
     public let index: Int
+    /// Current actual speed (F{i}Ac) — lags the target while the fan spins up/down.
     public let rpm: Double
+    /// Requested target speed (F{i}Tg) — reflects a manual set immediately.
+    public let target: Double
     public let min: Double
     public let max: Double
     public let forced: Bool
-    public init(index: Int, rpm: Double, min: Double, max: Double, forced: Bool) {
+    public init(index: Int, rpm: Double, target: Double, min: Double, max: Double, forced: Bool) {
         self.index = index
         self.rpm = rpm
+        self.target = target
         self.min = min
         self.max = max
         self.forced = forced
@@ -107,6 +111,7 @@ public final class SensorReader {
         let fans = (0..<count).map { i in
             FanReading(index: i,
                        rpm:    readDouble(SMCKey("F\(i)Ac")),
+                       target: readDouble(SMCKey("F\(i)Tg")),
                        min:    readDouble(SMCKey("F\(i)Mn")),
                        max:    readDouble(SMCKey("F\(i)Mx")),
                        forced: readDouble(SMCKey("F\(i)Md")) >= 0.5)
