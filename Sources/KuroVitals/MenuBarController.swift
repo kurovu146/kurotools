@@ -7,6 +7,20 @@ public let kMenuBarIcon = "K"
 @MainActor
 public final class MenuBarController {
     public let statusItem: NSStatusItem
+
+    // References into the currently populated menu, so ticks that fire while
+    // the menu is open can update titles/checkmarks in place. Rebuilding the
+    // menu while it's open would close any hovered submenu and flicker.
+    private struct LiveFanItems {
+        let parent: NSMenuItem
+        let autoItem: NSMenuItem
+        let presetItems: [NSMenuItem]   // RPM presets incl. Max; rpm = tag % 100000
+    }
+    private var liveTempItem: NSMenuItem?
+    private var liveCPUItem: NSMenuItem?
+    private var liveRAMItem: NSMenuItem?
+    private var liveFans: [LiveFanItems] = []
+
     public init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.font = NSFont.boldSystemFont(ofSize: 14)
@@ -18,6 +32,45 @@ public final class MenuBarController {
     public func setTitle(_ title: String) {
         guard let button = statusItem.button, button.title != title else { return }
         button.title = title
+    }
+
+    // MARK: Shared row formatting (populate + updateLive must never drift apart)
+
+    static let rpmStep = 500
+
+    static func tempTitle(_ s: Snapshot) -> String { String(format: "CPU temp: %.0f°C", s.cpuTempC) }
+    static func cpuTitle(_ s: Snapshot) -> String { String(format: "CPU load: %.0f%%", s.cpuLoadPct) }
+    static func ramTitle(_ s: Snapshot) -> String {
+        String(format: "RAM: %.1f / %.0f GB", s.ramUsedGB, s.ramTotalGB)
+    }
+    /// Title shows actual rpm; when forced, also the requested target.
+    static func fanTitle(_ i: Int, _ f: FanReading) -> String {
+        f.forced
+            ? "Quạt \(i + 1): \(Int(f.rpm)) rpm → đặt \(Int(f.target))"
+            : "Quạt \(i + 1): \(Int(f.rpm)) rpm (auto)"
+    }
+    /// Checkmark when the fan is forced to (about) this preset's rpm.
+    static func presetState(_ f: FanReading, presetRPM: Int) -> NSControl.StateValue {
+        (f.forced && abs(f.target - Double(presetRPM)) < Double(rpmStep) / 2) ? .on : .off
+    }
+
+    /// Refreshes titles/checkmarks of the already-built menu in place.
+    /// Called on each tick while the menu is open.
+    public func updateLive(snapshot s: Snapshot) {
+        liveTempItem?.title = Self.tempTitle(s)
+        liveCPUItem?.title = Self.cpuTitle(s)
+        liveRAMItem?.title = Self.ramTitle(s)
+        // Fan count is constant for a boot session; a mismatch means the menu
+        // is stale mid-rebuild — skip rather than index out of bounds.
+        guard s.fans.count == liveFans.count else { return }
+        for (i, f) in s.fans.enumerated() {
+            let live = liveFans[i]
+            live.parent.title = Self.fanTitle(i, f)
+            live.autoItem.state = f.forced ? .off : .on
+            for item in live.presetItems {
+                item.state = Self.presetState(f, presetRPM: item.tag % 100000)
+            }
+        }
     }
 }
 
@@ -55,16 +108,21 @@ public extension MenuBarController {
                   quit: Selector) {
 
         menu.removeAllItems()
+        liveTempItem = nil
+        liveCPUItem = nil
+        liveRAMItem = nil
+        liveFans = []
 
         // ── 1. Disabled info rows ─────────────────────────────────────────────
-        func info(_ text: String) {
+        func info(_ text: String) -> NSMenuItem {
             let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
+            return item
         }
-        if settings.showTemp { info(String(format: "CPU temp: %.0f°C", s.cpuTempC)) }
-        if settings.showCPU  { info(String(format: "CPU load: %.0f%%", s.cpuLoadPct)) }
-        if settings.showRAM  { info(String(format: "RAM: %.1f / %.0f GB", s.ramUsedGB, s.ramTotalGB)) }
+        if settings.showTemp { liveTempItem = info(Self.tempTitle(s)) }
+        if settings.showCPU  { liveCPUItem  = info(Self.cpuTitle(s)) }
+        if settings.showRAM  { liveRAMItem  = info(Self.ramTitle(s)) }
 
         // ── 2. Separator ──────────────────────────────────────────────────────
         menu.addItem(.separator())
@@ -74,13 +132,9 @@ public extension MenuBarController {
         // modal event tracking swallows keystrokes), so per-fan control is a submenu
         // of plain menu items — those fire their actions reliably.
         // tag encodes (fan, rpm) as `fan * 100000 + rpm` (rpm < 100000, fan small).
-        let rpmStep = 500
+        let rpmStep = Self.rpmStep
         for (i, f) in s.fans.enumerated() {
-            // Title shows actual rpm; when forced, also the requested target.
-            let title = f.forced
-                ? "Quạt \(i + 1): \(Int(f.rpm)) rpm → đặt \(Int(f.target))"
-                : "Quạt \(i + 1): \(Int(f.rpm)) rpm (auto)"
-            let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let parent = NSMenuItem(title: Self.fanTitle(i, f), action: nil, keyEquivalent: "")
             let sub = NSMenu(title: "Quạt \(i + 1)")
 
             let autoItem = NSMenuItem(title: "Auto (hệ thống)", action: autoFan, keyEquivalent: "")
@@ -91,6 +145,7 @@ public extension MenuBarController {
             sub.addItem(.separator())
 
             // RPM steps from the first multiple of `rpmStep` ≥ min, up to (and incl.) max.
+            var presetItems: [NSMenuItem] = []
             let lo = Int((f.min / Double(rpmStep)).rounded(.up)) * rpmStep
             let hi = Int(f.max)
             var rpm = Swift.max(lo, rpmStep)
@@ -98,20 +153,23 @@ public extension MenuBarController {
                 let item = NSMenuItem(title: "\(rpm) rpm", action: applyFanPreset, keyEquivalent: "")
                 item.tag = i * 100000 + rpm
                 item.target = target
-                if f.forced, abs(f.target - Double(rpm)) < Double(rpmStep) / 2 { item.state = .on }
+                item.state = Self.presetState(f, presetRPM: rpm)
                 sub.addItem(item)
+                presetItems.append(item)
                 rpm += rpmStep
             }
             if hi > 0 {
                 let maxItem = NSMenuItem(title: "Max (\(hi) rpm)", action: applyFanPreset, keyEquivalent: "")
                 maxItem.tag = i * 100000 + hi
                 maxItem.target = target
-                if f.forced, f.target >= Double(hi) - Double(rpmStep) / 2 { maxItem.state = .on }
+                maxItem.state = Self.presetState(f, presetRPM: hi)
                 sub.addItem(maxItem)
+                presetItems.append(maxItem)
             }
 
             parent.submenu = sub
             menu.addItem(parent)
+            liveFans.append(LiveFanItems(parent: parent, autoItem: autoItem, presetItems: presetItems))
         }
 
         // ── 4. Separator + global fan controls ───────────────────────────────

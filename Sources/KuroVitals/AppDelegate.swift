@@ -15,8 +15,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var timer: Timer?
     private var settings = Settings.load()
     private var lastSnapshot: Snapshot?
+    private var menuOpen = false
     private var warnUntil: Date?
     private var helperWarnUntil: Date?
+
+    /// Tick interval while the dropdown is open — fast enough to feel live.
+    private let menuOpenRefreshSeconds: TimeInterval = 1.0
 
     func applicationDidFinishLaunching(_ note: Notification) {
         guard let smc = try? SMC() else {
@@ -33,22 +37,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         menuBar.statusItem.menu = menu
 
-        timer = Timer.scheduledTimer(withTimeInterval: settings.refreshSeconds, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
-        }
-        // Let the OS coalesce our wakeup with others — we don't need exact firing.
-        timer?.tolerance = settings.refreshSeconds * 0.25
+        startNormalTimer()
 
         // Warm the SMC key/info caches so the first menu open is instant.
         lastSnapshot = reader.snapshot()
     }
 
+    /// (Re)schedules the tick in RunLoop mode .common — unlike scheduledTimer's
+    /// .default mode, .common includes .eventTracking, so ticks keep firing
+    /// while the dropdown menu is open (live metrics + fan heartbeat).
+    private func startTimer(interval: TimeInterval, tolerance: TimeInterval) {
+        timer?.invalidate()
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        t.tolerance = tolerance
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// Normal cadence with generous tolerance — the OS may coalesce our wakeup.
+    private func startNormalTimer() {
+        startTimer(interval: settings.refreshSeconds, tolerance: settings.refreshSeconds * 0.25)
+    }
+
     private func refresh() {
-        // Idle fast-path: no manual fan to heartbeat and no warning banner to
-        // expire. The bar shows the static "K" and the dropdown reads a fresh
-        // snapshot when opened, so there is nothing to compute — skip all
-        // SMC/mach reads. This is the app's state almost all of the time.
-        if !fan.hasManualTargets && warnUntil == nil && helperWarnUntil == nil { return }
+        // Idle fast-path: menu closed, no manual fan to heartbeat, and no
+        // warning banner to expire. The bar shows the static "K" and the
+        // dropdown reads a fresh snapshot when opened, so there is nothing to
+        // compute — skip all SMC/mach reads. This is the app's state almost
+        // all of the time.
+        if !menuOpen && !fan.hasManualTargets && warnUntil == nil && helperWarnUntil == nil { return }
 
         let s = reader.snapshot()
         lastSnapshot = s
@@ -70,6 +89,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             helperWarnUntil = nil
             menuBar.setTitle(kMenuBarIcon)
         }
+
+        // While the dropdown is open, refresh its rows in place so the metrics
+        // are live, not a snapshot from the moment it was opened.
+        if menuOpen { menuBar.updateLive(snapshot: s) }
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        menuOpen = true
+        startTimer(interval: menuOpenRefreshSeconds, tolerance: 0.1)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        menuOpen = false
+        startNormalTimer()
     }
 
     /// Called by AppKit right before the dropdown opens — build it from a fresh
