@@ -143,7 +143,9 @@ let listenFD = makeSocket(path: socketPath)
 
 let watchdogQueue = DispatchQueue(label: "com.kurovitals.watchdog")
 let timer = DispatchSource.makeTimerSource(queue: watchdogQueue)
-timer.schedule(deadline: .now() + 1, repeating: 1.0)
+// 500ms leeway lets the kernel coalesce this wakeup with others; TTLs are
+// whole seconds (min 1s), so up to +0.5s of revert latency is fine.
+timer.schedule(deadline: .now() + 1, repeating: 1.0, leeway: .milliseconds(500))
 timer.setEventHandler { daemon.watchdogTick() }
 timer.resume()
 
@@ -169,6 +171,9 @@ sigintSrc.resume()
 
 // ── Accept loop (blocks main thread) ─────────────────────────────────────────
 
+let jsonDecoder = JSONDecoder()
+let jsonEncoder = JSONEncoder()
+
 while true {
     let clientFD = accept(listenFD, nil, nil)
     if clientFD < 0 { continue }
@@ -188,13 +193,13 @@ while true {
     }
 
     let resp: FanResponse
-    if let cmd = try? JSONDecoder().decode(FanCommand.self, from: lineData) {
+    if let cmd = try? jsonDecoder.decode(FanCommand.self, from: lineData) {
         resp = daemon.handle(cmd)
     } else {
         resp = FanResponse(ok: false, message: "bad request")
     }
 
-    if var out = try? JSONEncoder().encode(resp) {
+    if var out = try? jsonEncoder.encode(resp) {
         out.append(0x0A)   // newline delimiter
         _ = out.withUnsafeBytes { write(clientFD, $0.baseAddress, out.count) }
     }

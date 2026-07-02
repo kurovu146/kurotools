@@ -9,11 +9,12 @@ import HelperProtocol
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var reader: SensorReader!
     private let menuBar = MenuBarController()
+    // One persistent menu, repopulated on open (menuNeedsUpdate) — never on the tick.
+    private let menu = NSMenu()
     private var fan: FanController!
     private var timer: Timer?
     private var settings = Settings.load()
     private var lastSnapshot: Snapshot?
-    private var menuOpen = false
     private var warnUntil: Date?
     private var helperWarnUntil: Date?
 
@@ -28,13 +29,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         reader = SensorReader(smc: smc, cpu: CPULoadSampler(), mem: MemorySampler())
         fan = FanController(commander: HelperClient(), threshold: settings.thresholdC, ttlSeconds: 6)
+
+        menu.delegate = self
+        menuBar.statusItem.menu = menu
+
         timer = Timer.scheduledTimer(withTimeInterval: settings.refreshSeconds, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
-        refresh()
+        // Let the OS coalesce our wakeup with others — we don't need exact firing.
+        timer?.tolerance = settings.refreshSeconds * 0.25
+
+        // Warm the SMC key/info caches so the first menu open is instant.
+        lastSnapshot = reader.snapshot()
     }
 
     private func refresh() {
+        // Idle fast-path: no manual fan to heartbeat and no warning banner to
+        // expire. The bar shows the static "K" and the dropdown reads a fresh
+        // snapshot when opened, so there is nothing to compute — skip all
+        // SMC/mach reads. This is the app's state almost all of the time.
+        if !fan.hasManualTargets && warnUntil == nil && helperWarnUntil == nil { return }
+
         let s = reader.snapshot()
         lastSnapshot = s
 
@@ -44,47 +59,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let r = tickResult.response, !r.ok { flashHelperWarning() }
         }
 
-        // Title priority: over-temp warning > helper warning > normal readout.
-        if let until = warnUntil, until > Date() {
-            menuBar.statusItem.button?.title = "⚠︎ Quá nhiệt → Auto"
-        } else if let until = helperWarnUntil, until > Date() {
-            menuBar.statusItem.button?.title = "⚠︎ Helper chưa cài?"
+        // Title priority: over-temp warning > helper warning > normal "K" icon.
+        let now = Date()
+        if let until = warnUntil, until > now {
+            menuBar.setTitle("⚠︎ Quá nhiệt → Auto")
+        } else if let until = helperWarnUntil, until > now {
+            menuBar.setTitle("⚠︎ Helper chưa cài?")
         } else {
             warnUntil = nil
             helperWarnUntil = nil
-            menuBar.render(s, settings: settings)
-        }
-
-        if !menuOpen {
-            menuBar.updateMenu(snapshot: s, settings: settings, target: self,
-                applyFanPreset: #selector(applyFanPreset(_:)),
-                autoFan: #selector(autoFan(_:)),
-                allAuto: #selector(allAutoAction),
-                presetQuiet: #selector(presetQuiet),
-                presetMax: #selector(presetMax),
-                toggleShow: #selector(toggleShow(_:)),
-                setThreshold: #selector(setThreshold(_:)),
-                quit: #selector(quitApp))
-            menuBar.statusItem.menu?.delegate = self
+            menuBar.setTitle(kMenuBarIcon)
         }
     }
 
-    func menuWillOpen(_ menu: NSMenu) { menuOpen = true }
-    func menuDidClose(_ menu: NSMenu) { menuOpen = false }
+    /// Called by AppKit right before the dropdown opens — build it from a fresh
+    /// snapshot so RPM/temp/checkmarks are current without any per-tick rebuild.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        let s = reader.snapshot()
+        lastSnapshot = s
+        menuBar.populate(menu: menu, snapshot: s, settings: settings, target: self,
+            applyFanPreset: #selector(applyFanPreset(_:)),
+            autoFan: #selector(autoFan(_:)),
+            allAuto: #selector(allAutoAction),
+            presetQuiet: #selector(presetQuiet),
+            presetMax: #selector(presetMax),
+            toggleShow: #selector(toggleShow(_:)),
+            setThreshold: #selector(setThreshold(_:)),
+            quit: #selector(quitApp))
+    }
 
     private func flashHelperWarning() {
         helperWarnUntil = Date().addingTimeInterval(3)
     }
 
-    /// Rebuild the (now-dismissing) menu on the next runloop so a just-applied
-    /// target shows its checkmark immediately, before the next ~1.5s tick.
+    /// Run a tick on the next runloop so a just-applied change is reflected
+    /// (heartbeat + warning title) before the next timer firing.
     private func refreshSoon() {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated { self?.refresh() }
         }
     }
 
-    /// Sender tag encodes (fan, rpm) as `fan * 100000 + rpm` (set in updateMenu).
+    /// Sender tag encodes (fan, rpm) as `fan * 100000 + rpm` (set in populate).
     @objc private func applyFanPreset(_ sender: NSMenuItem) {
         let fanIdx = sender.tag / 100000
         let rpm = sender.tag % 100000
@@ -139,14 +155,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         default: break
         }
         settings.save()
-        refresh()
     }
 
     @objc private func setThreshold(_ sender: NSMenuItem) {
         settings.thresholdC = Double(sender.tag)
         settings.save()
         fan.setThreshold(settings.thresholdC)
-        refresh()
     }
 
     @objc private func quitApp() { _ = fan.setAllAuto(); NSApp.terminate(nil) }

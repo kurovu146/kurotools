@@ -23,6 +23,10 @@ public func memoryUsed(internalPages: UInt64, purgeablePages: UInt64,
 }
 
 public final class MemorySampler {
+    // Cached for the same reason as CPULoadSampler.host: repeated
+    // mach_host_self() calls leak send-right references.
+    private let host = mach_host_self()
+
     public init() {}
 
     public func read() -> MemoryInfo {
@@ -30,7 +34,7 @@ public final class MemorySampler {
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.stride / MemoryLayout<integer_t>.stride)
         let kr = withUnsafeMutablePointer(to: &stats) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+                host_statistics64(host, HOST_VM_INFO64, $0, &count)
             }
         }
         let pageSize = UInt64(vm_kernel_page_size)

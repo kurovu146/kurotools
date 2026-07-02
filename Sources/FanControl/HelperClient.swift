@@ -3,6 +3,8 @@ import HelperProtocol
 
 public final class HelperClient: FanCommanding {
     private let socketPath: String
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
     public init(socketPath: String = kHelperSocketPath) { self.socketPath = socketPath }
 
     public func send(_ command: FanCommand) -> FanResponse {
@@ -37,7 +39,7 @@ public final class HelperClient: FanCommanding {
         guard connectResult == 0 else {
             return FanResponse(ok: false, message: "helper not running")
         }
-        guard var data = try? JSONEncoder().encode(command) else {
+        guard var data = try? encoder.encode(command) else {
             return FanResponse(ok: false, message: "encode failed")
         }
         data.append(0x0A) // newline delimiter
@@ -49,7 +51,7 @@ public final class HelperClient: FanCommanding {
         // Split on newline using [UInt8] to avoid Data Sequence/Collection ambiguity
         let received: [UInt8] = Array(buf[0..<n])
         let lineBytes = received.split(separator: UInt8(0x0A)).first.map(Array.init) ?? received
-        guard let resp = try? JSONDecoder().decode(FanResponse.self, from: Data(lineBytes))
+        guard let resp = try? decoder.decode(FanResponse.self, from: Data(lineBytes))
         else { return FanResponse(ok: false, message: "no/invalid response") }
         return resp
     }

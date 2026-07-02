@@ -21,6 +21,9 @@ public final class FanController {
 
     public func setThreshold(_ c: Double) { threshold = c }
 
+    /// True while any fan has a manual target that tick() must keep alive.
+    public var hasManualTargets: Bool { !manualTargets.isEmpty }
+
     /// Clamp, remember, send. Returns (appliedRPM, response).
     @discardableResult
     public func setTarget(fan: Int, rpm: Int, min: Int, max: Int) -> (rpm: Int, response: FanResponse) {

@@ -20,6 +20,10 @@ public func cpuUsagePercent(previous: CPUTicks, current: CPUTicks) -> Double {
 
 public final class CPULoadSampler {
     private var previous: CPUTicks?
+    // Cached: every mach_host_self() call inserts another send-right reference
+    // into the task's port namespace, which never gets released — a slow leak
+    // in a process that samples 24/7.
+    private let host = mach_host_self()
 
     public init() {}
 
@@ -30,7 +34,7 @@ public final class CPULoadSampler {
         var info = host_cpu_load_info()
         let kr = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &count)
+                host_statistics(host, HOST_CPU_LOAD_INFO, $0, &count)
             }
         }
         guard kr == KERN_SUCCESS else { return CPUTicks(user: 0, system: 0, idle: 0, nice: 0) }

@@ -12,20 +12,24 @@ public final class MenuBarController {
         statusItem.button?.font = NSFont.boldSystemFont(ofSize: 14)
         statusItem.button?.title = kMenuBarIcon
     }
-    /// The bar always shows the "K" icon; click it to see the metrics dropdown.
-    /// Params are kept for call-site compatibility (and a possible future numeric mode).
-    public func render(_ s: Snapshot, settings: Settings) {
-        statusItem.button?.title = kMenuBarIcon
+
+    /// Sets the bar title only when it actually changed — the title is "K" almost
+    /// all the time, and re-setting it every tick triggers AppKit layout work.
+    public func setTitle(_ title: String) {
+        guard let button = statusItem.button, button.title != title else { return }
+        button.title = title
     }
 }
 
 // MARK: - Dropdown menu
 
 public extension MenuBarController {
-    /// Builds (or rebuilds) the dropdown NSMenu and assigns it to `statusItem.menu`.
-    /// Called by the app delegate on every tick so the menu always shows fresh data.
+    /// Rebuilds `menu` in place from the given snapshot.
+    /// Called from NSMenuDelegate.menuNeedsUpdate — i.e. only when the user
+    /// actually opens the dropdown, never on the sensor tick.
     ///
     /// - Parameters:
+    ///   - menu:          The persistent status-item menu to (re)populate.
     ///   - s:             Latest sensor snapshot.
     ///   - settings:      Current user settings (used for Show-X states and threshold).
     ///   - target:        Action target for every interactive item.
@@ -37,19 +41,20 @@ public extension MenuBarController {
     ///   - toggleShow:    Action for Show-X checkable items; sender.tag = 0:temp 1:cpu 2:ram 3:fan.
     ///   - setThreshold:  Action for threshold items; sender.tag = the °C value (90/95/100).
     ///   - quit:          Action for "Quit KuroVitals".
-    func updateMenu(snapshot s: Snapshot,
-                    settings: Settings,
-                    target: AnyObject,
-                    applyFanPreset: Selector,
-                    autoFan: Selector,
-                    allAuto: Selector,
-                    presetQuiet: Selector,
-                    presetMax: Selector,
-                    toggleShow: Selector,
-                    setThreshold: Selector,
-                    quit: Selector) {
+    func populate(menu: NSMenu,
+                  snapshot s: Snapshot,
+                  settings: Settings,
+                  target: AnyObject,
+                  applyFanPreset: Selector,
+                  autoFan: Selector,
+                  allAuto: Selector,
+                  presetQuiet: Selector,
+                  presetMax: Selector,
+                  toggleShow: Selector,
+                  setThreshold: Selector,
+                  quit: Selector) {
 
-        let menu = NSMenu()
+        menu.removeAllItems()
 
         // ── 1. Disabled info rows ─────────────────────────────────────────────
         func info(_ text: String) {
@@ -168,7 +173,5 @@ public extension MenuBarController {
         let quitItem = NSMenuItem(title: "Quit KuroVitals", action: quit, keyEquivalent: "q")
         quitItem.target = target
         menu.addItem(quitItem)
-
-        statusItem.menu = menu
     }
 }

@@ -6,7 +6,9 @@ import SystemStats
 final class FakeSMC: SMCReading {
     var values: [String: SMCValue] = [:]
     var keys: [SMCKey] = []
+    var readCounts: [String: Int] = [:]
     func read(_ key: SMCKey) throws -> SMCValue {
+        readCounts[key.string, default: 0] += 1
         guard let v = values[key.string] else { throw SMCError.keyNotFound(key.string) }
         return v
     }
@@ -80,6 +82,42 @@ final class SensorReaderTests: XCTestCase {
         XCTAssertFalse(s.fans[1].forced)
         // fanForced = true because at least one fan is forced
         XCTAssertTrue(s.fanForced)
+    }
+
+    func testSnapshotCachesStaticFanValues() {
+        let fake = FakeSMC()
+        func flt(_ k: String, _ v: Double) -> SMCValue {
+            let f = Float(v)
+            let le = withUnsafeBytes(of: f) { Array($0) }
+            return SMCValue(key: SMCKey(k), dataType: .flt, bytes: le)
+        }
+        fake.keys = [SMCKey("Tp01")]
+        fake.values = [
+            "Tp01": flt("Tp01", 50),
+            "FNum": SMCValue(key: SMCKey("FNum"), dataType: .ui8, bytes: [1]),
+            "F0Ac": flt("F0Ac", 3000),
+            "F0Tg": flt("F0Tg", 3000),
+            "F0Mn": flt("F0Mn", 2317),
+            "F0Mx": flt("F0Mx", 6800),
+            "F0Md": SMCValue(key: SMCKey("F0Md"), dataType: .ui8, bytes: [0]),
+        ]
+        let r = SensorReader(smc: fake, cpu: CPULoadSampler(), mem: MemorySampler(),
+                             tempKeyPrefixes: ["Tp"])
+        _ = r.snapshot()
+        let s = r.snapshot()
+
+        // Static values (FNum, min, max) are read once and cached; only the
+        // dynamic keys (Ac, Tg, Md) plus temps are re-read on every snapshot.
+        XCTAssertEqual(fake.readCounts["FNum"], 1)
+        XCTAssertEqual(fake.readCounts["F0Mn"], 1)
+        XCTAssertEqual(fake.readCounts["F0Mx"], 1)
+        XCTAssertEqual(fake.readCounts["F0Ac"], 2)
+        XCTAssertEqual(fake.readCounts["F0Tg"], 2)
+        XCTAssertEqual(fake.readCounts["F0Md"], 2)
+        XCTAssertEqual(fake.readCounts["Tp01"], 2)
+        // Cached statics still populate the snapshot correctly.
+        XCTAssertEqual(s.fans[0].min, 2317, accuracy: 0.5)
+        XCTAssertEqual(s.fans[0].max, 6800, accuracy: 0.5)
     }
 
     func testSnapshotFanRPMUsesMaxWhenOneZero() {

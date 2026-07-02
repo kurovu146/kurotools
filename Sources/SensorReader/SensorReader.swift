@@ -68,6 +68,19 @@ public final class SensorReader {
     /// Cached after first allKeys() call — SMC key list doesn't change at runtime.
     private var cachedTempKeys: [SMCKey]?
 
+    /// Per-fan constants resolved once: fan count (FNum), min/max RPM, and the
+    /// SMCKey structs for the three per-tick reads. None of these change during
+    /// a boot session, so re-reading them (and re-building key strings) every
+    /// snapshot only added IOKit calls.
+    private struct FanConstants {
+        let acKey: SMCKey   // F{i}Ac — actual rpm
+        let tgKey: SMCKey   // F{i}Tg — target rpm
+        let mdKey: SMCKey   // F{i}Md — forced/auto mode
+        let min: Double
+        let max: Double
+    }
+    private var cachedFanConstants: [FanConstants]?
+
     /// - Parameters:
     ///   - smc: SMC reader (real `SMC` or a mock for tests).
     ///   - cpu: CPU load sampler.
@@ -101,20 +114,33 @@ public final class SensorReader {
         (try? smc.read(key))?.double ?? 0
     }
 
+    private func fanConstants() -> [FanConstants] {
+        if let cached = cachedFanConstants { return cached }
+        let count = Swift.min(Swift.max(Int(readDouble(SMCKey("FNum"))), 1), 8)
+        let constants = (0..<count).map { i in
+            FanConstants(acKey: SMCKey("F\(i)Ac"),
+                         tgKey: SMCKey("F\(i)Tg"),
+                         mdKey: SMCKey("F\(i)Md"),
+                         min: readDouble(SMCKey("F\(i)Mn")),
+                         max: readDouble(SMCKey("F\(i)Mx")))
+        }
+        cachedFanConstants = constants
+        return constants
+    }
+
     // MARK: Public API
 
     public func snapshot() -> Snapshot {
         let temps = tempKeys().map { readDouble($0) }
         let m = mem.read()
 
-        let count = Swift.min(Swift.max(Int(readDouble(SMCKey("FNum"))), 1), 8)
-        let fans = (0..<count).map { i in
+        let fans = fanConstants().enumerated().map { (i, c) in
             FanReading(index: i,
-                       rpm:    readDouble(SMCKey("F\(i)Ac")),
-                       target: readDouble(SMCKey("F\(i)Tg")),
-                       min:    readDouble(SMCKey("F\(i)Mn")),
-                       max:    readDouble(SMCKey("F\(i)Mx")),
-                       forced: readDouble(SMCKey("F\(i)Md")) >= 0.5)
+                       rpm:    readDouble(c.acKey),
+                       target: readDouble(c.tgKey),
+                       min:    c.min,
+                       max:    c.max,
+                       forced: readDouble(c.mdKey) >= 0.5)
         }
 
         return Snapshot(

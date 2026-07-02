@@ -58,6 +58,19 @@ final class FanControllerTests: XCTestCase {
         XCTAssertEqual(spy.sent, [.allAuto])
     }
 
+    func testHasManualTargetsTracksLifecycle() {
+        let spy = SpyCommander()
+        let fc = FanController(commander: spy, threshold: 95, ttlSeconds: 6)
+        XCTAssertFalse(fc.hasManualTargets)
+        _ = fc.setTarget(fan: 0, rpm: 3000, min: 1800, max: 6000)
+        XCTAssertTrue(fc.hasManualTargets)
+        _ = fc.setAuto(fan: 0)
+        XCTAssertFalse(fc.hasManualTargets)
+        _ = fc.setTarget(fan: 0, rpm: 3000, min: 1800, max: 6000)
+        _ = fc.setAllAuto()
+        XCTAssertFalse(fc.hasManualTargets)
+    }
+
     func testFanCommandAndResponseCodableRoundTrip() throws {
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
