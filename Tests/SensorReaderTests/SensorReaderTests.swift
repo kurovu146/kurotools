@@ -17,10 +17,16 @@ final class FakeSMC: SMCReading {
 
 final class SensorReaderTests: XCTestCase {
 
-    func testAverageTempFiltersOutliers() {
-        // 0 and 200 are invalid; average of 40 and 50 = 45
-        XCTAssertEqual(averageTemp([0, 40, 50, 200]), 45, accuracy: 0.01)
-        XCTAssertEqual(averageTemp([]), 0, accuracy: 0.01)
+    func testMaxTempFiltersResidualAndOutliers() {
+        // Power-gated P-cores report residual 0-8°C (below the 15°C floor);
+        // 200 is an invalid outlier. Hottest valid sensor = 50.
+        XCTAssertEqual(maxTemp([0, 6.7, 8.4, 40, 50, 200]), 50, accuracy: 0.01)
+        // All sensors residual/invalid → 0 (no valid reading)
+        XCTAssertEqual(maxTemp([6.7, 8.4]), 0, accuracy: 0.01)
+        XCTAssertEqual(maxTemp([]), 0, accuracy: 0.01)
+        // Exactly at the floor is still invalid; just above is valid
+        XCTAssertEqual(maxTemp([15]), 0, accuracy: 0.01)
+        XCTAssertEqual(maxTemp([15.1]), 15.1, accuracy: 0.01)
     }
 
     func testSnapshotReadsFanAndTemp() {
@@ -34,9 +40,10 @@ final class SensorReaderTests: XCTestCase {
         }
 
         // FNum=2 → two fans: F0Ac=2400, F1Ac=2600 → fanRPM should be max = 2600
-        // Temp sensors: Tp01=44, Tp05=46 (P-core), Te05=48 (E-core) → avg = (44+46+48)/3 = 46
+        // Temp sensors: Tp01=44, Tp05=46 (P-core), Te05=48 (E-core),
+        // Tp09=6.7 (power-gated residual, ignored) → hottest = 48
         fake.keys = [
-            SMCKey("Tp01"), SMCKey("Tp05"), SMCKey("Te05"),
+            SMCKey("Tp01"), SMCKey("Tp05"), SMCKey("Te05"), SMCKey("Tp09"),
             SMCKey("FNum"),
             SMCKey("F0Ac"), SMCKey("F1Ac"),
             SMCKey("F0Tg"), SMCKey("F1Tg"),
@@ -47,6 +54,7 @@ final class SensorReaderTests: XCTestCase {
             "Tp01": flt("Tp01", 44),
             "Tp05": flt("Tp05", 46),
             "Te05": flt("Te05", 48),
+            "Tp09": flt("Tp09", 6.7),
             "FNum": SMCValue(key: SMCKey("FNum"), dataType: .ui8, bytes: [2]),
             "F0Ac": flt("F0Ac", 2400),
             "F1Ac": flt("F1Ac", 2600),
@@ -64,8 +72,8 @@ final class SensorReaderTests: XCTestCase {
                              tempKeyPrefixes: ["Tp", "Te"])
         let s = r.snapshot()
 
-        // cpuTempC = average of 44, 46, 48 = 46
-        XCTAssertEqual(s.cpuTempC, 46, accuracy: 0.01)
+        // cpuTempC = hottest valid sensor = 48 (residual 6.7 ignored)
+        XCTAssertEqual(s.cpuTempC, 48, accuracy: 0.01)
         // Two fans present
         XCTAssertEqual(s.fans.count, 2)
         XCTAssertEqual(s.fans[0].rpm, 2400, accuracy: 0.5)

@@ -50,12 +50,12 @@ public struct Snapshot {
 
 // MARK: - Helpers
 
-/// Average of valid temps: filters out values <= 0 or >= 120 (invalid/outlier).
-/// Returns 0 if no valid values remain.
-public func averageTemp(_ values: [Double]) -> Double {
-    let valid = values.filter { $0 > 0 && $0 < 120 }
-    guard !valid.isEmpty else { return 0 }
-    return valid.reduce(0, +) / Double(valid.count)
+/// Hottest valid temp: filters out values <= 15 or >= 120.
+/// Power-gated idle P-cores report residual 0-8°C on Apple Silicon — below
+/// ambient, so anything under 15°C cannot be a real die temp. Returns 0 if
+/// no valid values remain.
+public func maxTemp(_ values: [Double]) -> Double {
+    values.filter { $0 > 15 && $0 < 120 }.max() ?? 0
 }
 
 // MARK: - SensorReader
@@ -144,7 +144,7 @@ public final class SensorReader {
         }
 
         return Snapshot(
-            cpuTempC:   averageTemp(temps),
+            cpuTempC:   maxTemp(temps),
             cpuLoadPct: cpu.usage(),
             ramUsedGB:  m.usedGB,
             ramTotalGB: m.totalGB,
