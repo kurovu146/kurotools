@@ -12,6 +12,7 @@ K  ▾
  ├ Quạt 1: 2400 rpm (auto)        ▸  Auto · 2500 · 3000 · … · Max
  ├ Quạt 2: 2500 rpm → đặt 5000    ▸  Auto · 2500 · … · [5000 ✓] · … · Max
  ├ Tất cả Auto · Quiet · Max
+ ├ Tiến trình...                  opens CPU/RAM process inspector
  └ Settings · Quit
 ```
 
@@ -23,6 +24,8 @@ K  ▾
 - **Independent per-fan control:** each fan gets its own submenu of RPM presets (500-rpm steps)
   plus *Auto*; a ✓ marks the requested target. Global *Tất cả Auto / Quiet / Max* too.
   *(macOS menus can't host a text field that receives typing, so speed is chosen from presets.)*
+- **Process inspector:** search running processes by name/PID/port, view per-process CPU/RAM
+  and open ports, and send a terminate signal to a selected process.
 - **Safety, three layers:** RPM is clamped to the hardware range; the app auto-reverts to Auto
   when temperature hits the threshold (90/95/100 °C, with a menu-bar warning); the root helper
   reverts every fan to Auto if the app crashes / stops sending heartbeats — and on its own startup.
@@ -71,6 +74,7 @@ Click the **`K`** in the menu bar:
 - **Per fan** → open *Quạt 1* / *Quạt 2* → pick an RPM (or *Auto*). Each fan is independent;
   the title shows the current speed and, when forced, the requested target (`→ đặt 5000`).
 - **Tất cả Auto / Quiet / Max** apply to all fans at once.
+- **Tiến trình...** opens a searchable process list with PID, ports, CPU, RAM, refresh, and kill controls.
 - **Settings** → toggle which metric rows appear, or set the over-temp auto-revert threshold.
 - **Quit** reverts all fans to Auto and exits.
 
@@ -92,7 +96,7 @@ Swift Package Manager modules:
 | Module | Responsibility |
 |---|---|
 | `SMCKit` | IOKit `AppleSMC` read/write, typed value decoding (`flt`/`fpe2`/`ui8`/…), per-fan helpers |
-| `SystemStats` | CPU load (`host_statistics`), memory (`vm_statistics64`, App-Memory model) |
+| `SystemStats` | CPU load (`host_statistics`), memory (`vm_statistics64`, App-Memory model), process list/ports/kill |
 | `SensorReader` | Combines temp (avg of `Tp*`+`Te*`) / CPU / RAM / per-fan readings into a `Snapshot` |
 | `FanControl` | Per-fan clamp + over-temp auto-revert + heartbeat; Unix-socket `HelperClient` |
 | `HelperProtocol` | Shared `Codable` command/response + socket path |

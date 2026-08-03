@@ -93,6 +93,7 @@ public extension MenuBarController {
     ///   - presetMax:     Action for "Max tất cả".
     ///   - toggleShow:    Action for Show-X checkable items; sender.tag = 0:temp 1:cpu 2:ram 3:fan.
     ///   - setThreshold:  Action for threshold items; sender.tag = the °C value (90/95/100).
+    ///   - showProcesses: Action for opening the running-process inspector.
     ///   - quit:          Action for "Quit KuroVitals".
     func populate(menu: NSMenu,
                   snapshot s: Snapshot,
@@ -105,6 +106,7 @@ public extension MenuBarController {
                   presetMax: Selector,
                   toggleShow: Selector,
                   setThreshold: Selector,
+                  showProcesses: Selector,
                   quit: Selector) {
 
         menu.removeAllItems()
@@ -187,7 +189,14 @@ public extension MenuBarController {
         // ── 5. Separator ──────────────────────────────────────────────────────
         menu.addItem(.separator())
 
-        // ── 6. Settings submenu ───────────────────────────────────────────────
+        // ── 6. Process inspector ─────────────────────────────────────────────
+        let processesItem = NSMenuItem(title: "Tiến trình...", action: showProcesses, keyEquivalent: "p")
+        processesItem.target = target
+        menu.addItem(processesItem)
+
+        menu.addItem(.separator())
+
+        // ── 7. Settings submenu ───────────────────────────────────────────────
         let settingsParent = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
         let settingsMenu   = NSMenu(title: "Settings")
 
@@ -224,10 +233,10 @@ public extension MenuBarController {
         settingsParent.submenu = settingsMenu
         menu.addItem(settingsParent)
 
-        // ── 7. Separator ──────────────────────────────────────────────────────
+        // ── 8. Separator ──────────────────────────────────────────────────────
         menu.addItem(.separator())
 
-        // ── 8. Quit ───────────────────────────────────────────────────────────
+        // ── 9. Quit ───────────────────────────────────────────────────────────
         let quitItem = NSMenuItem(title: "Quit KuroVitals", action: quit, keyEquivalent: "q")
         quitItem.target = target
         menu.addItem(quitItem)

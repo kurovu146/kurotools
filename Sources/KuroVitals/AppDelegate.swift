@@ -9,6 +9,7 @@ import HelperProtocol
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var reader: SensorReader!
     private let menuBar = MenuBarController()
+    private lazy var processWindowController = ProcessWindowController()
     // One persistent menu, repopulated on open (menuNeedsUpdate) — never on the tick.
     private let menu = NSMenu()
     private var fan: FanController!
@@ -118,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             presetMax: #selector(presetMax),
             toggleShow: #selector(toggleShow(_:)),
             setThreshold: #selector(setThreshold(_:)),
+            showProcesses: #selector(showProcesses),
             quit: #selector(quitApp))
     }
 
@@ -194,6 +196,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.thresholdC = Double(sender.tag)
         settings.save()
         fan.setThreshold(settings.thresholdC)
+    }
+
+    @objc private func showProcesses() {
+        processWindowController.showAndRefresh()
     }
 
     @objc private func quitApp() { _ = fan.setAllAuto(); NSApp.terminate(nil) }
