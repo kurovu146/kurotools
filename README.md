@@ -60,23 +60,21 @@ hotkey. That path needs no permission at all.
 
 ## macOS: native fullscreen apps
 
-**Known limitation.** The popup does not appear over an app in *native*
-fullscreen — the green-button kind, which macOS gives its own Space. The window
-is created, positioned and shown correctly; it just stays on its own Space.
+Works. The popup appears over apps in *native* fullscreen — the green-button
+kind that macOS gives its own Space — verified against a fullscreen Ghostty.
 
-`NSWindowCollectionBehaviorCanJoinAllSpaces | FullScreenAuxiliary` is set (reads
-back as `257`) and the window level is raised to 101, both verified still in
-force after the window is shown. That is not enough on its own, and the cause
-is not yet understood.
+Two things are required together, and neither is enough alone:
 
-If you live in a fullscreen terminal, the fix is one line of Ghostty config:
+- `NSWindowCollectionBehaviorCanJoinAllSpaces | FullScreenAuxiliary` (reads back
+  as `257`), which lets the window *join* another app's fullscreen Space
+- window level raised from `NSFloatingWindowLevel` (5) to **101**, which puts it
+  *in front* once there
 
-```
-macos-non-native-fullscreen = true
-```
-
-Ghostty then fills the screen without claiming a Space, and the popup appears
-over it normally. `zoom` in tmux, or a maximised window, work fine too.
+Both are applied once at startup rather than per-show. Applying them in `show`
+fails silently two ways: `run_on_main_thread` is asynchronous, so the change
+lands after the window is already placed, and Tauri's
+`set_visible_on_all_workspaces` is itself a `setCollectionBehavior` call
+carrying only `CanJoinAllSpaces`, which wipes the fullscreen flag every time.
 
 ## Inside tmux, copy first
 
