@@ -24,3 +24,7 @@ serde_json.workspace = true
 tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-single-instance = "2.4.3"
 tauri-plugin-autostart = "2.5.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSResponder"] }

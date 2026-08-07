@@ -27,15 +27,28 @@
 
 use std::time::Duration;
 
-/// How long to wait after synthesizing the copy keystroke before reading the
-/// clipboard back.
+/// How long to wait after synthesizing the copy keystroke before giving up.
 ///
 /// This is a race we cannot fully win: the target application handles the
 /// keystroke asynchronously and there is no completion signal to wait on. The
 /// mitigation is [`capture_selection`]'s change-detection loop, which polls
 /// rather than sleeping once and hoping — this value is the polling budget,
-/// not a fixed sleep.
-const COPY_TIMEOUT: Duration = Duration::from_millis(400);
+/// not a fixed sleep, so a fast app still answers in ~20ms.
+///
+/// Measured: 400ms was **too short**. Ghostty with tmux took over 450ms, so
+/// every capture there failed *and* the late write then landed after the
+/// restore, destroying the user's clipboard. Terminals are the slowest case
+/// and also a primary target, so the budget is set well past them.
+const COPY_TIMEOUT: Duration = Duration::from_millis(1500);
+
+/// After a failed capture, keep watching this long for a late write.
+///
+/// The dangerous ordering is: poll times out, we restore the clipboard, and
+/// only *then* does the application's copy land — silently overwriting what we
+/// just put back. Watching a little longer and restoring again closes that
+/// window. Only runs on the failure path; a successful capture has already
+/// seen the write, so nothing can still be in flight.
+const LATE_WRITE_GRACE: Duration = Duration::from_millis(600);
 
 /// Gap between polls while waiting for the clipboard to change.
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -132,7 +145,45 @@ fn capture_via_synthesized_copy() -> Result<String> {
 
     restore_clipboard(&mut cb, saved.as_deref());
 
+    // Only the failure path can still have a write in flight: a success has
+    // already observed the application's write, so nothing is pending. After a
+    // timeout the copy may yet land and silently overwrite what was just
+    // restored — measured happening for real in Ghostty/tmux.
+    if outcome.is_err() {
+        guard_against_late_write(&mut cb, saved.as_deref());
+    }
+
     outcome
+}
+
+/// Watch for a write that arrives after the restore, and undo it.
+///
+/// Returns as soon as one is caught, or when [`LATE_WRITE_GRACE`] elapses.
+/// Best-effort by nature — an application slower than the grace window still
+/// wins — but it converts the common case from "clipboard silently destroyed"
+/// into "clipboard preserved".
+#[cfg(not(target_os = "linux"))]
+fn guard_against_late_write(cb: &mut arboard::Clipboard, saved: Option<&str>) {
+    let deadline = std::time::Instant::now() + LATE_WRITE_GRACE;
+    let expected = saved.unwrap_or_default();
+
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(POLL_INTERVAL);
+
+        match cb.get_text() {
+            Ok(current) if current != expected => {
+                restore_clipboard(cb, saved);
+                return;
+            }
+            // An unreadable clipboard here means someone put a non-text value
+            // on it, which is itself a write we should undo.
+            Err(_) if saved.is_some() => {
+                restore_clipboard(cb, saved);
+                return;
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Poll until the clipboard differs from `previous`, or the budget runs out.

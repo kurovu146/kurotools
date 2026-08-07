@@ -68,6 +68,44 @@ fn capture_now() -> CaptureEvent {
     }
 }
 
+/// Let the popup appear over another app's **fullscreen** Space.
+///
+/// `set_visible_on_all_workspaces` sets `CanJoinAllSpaces`, which covers
+/// ordinary desktop Spaces and nothing else. A fullscreen app owns its own
+/// Space, and macOS will not put a window there unless the window also
+/// declares `FullScreenAuxiliary` — so with only `CanJoinAllSpaces` the popup
+/// reports visible, focused and correctly positioned while being impossible to
+/// see. Tauri exposes no API for this, hence reaching for the `NSWindow`.
+///
+/// Both flags are set together deliberately: `setCollectionBehavior` replaces
+/// the whole mask rather than adding to it, so setting only the new flag would
+/// undo the call above.
+#[cfg(target_os = "macos")]
+fn allow_over_fullscreen(window: &WebviewWindow) {
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+
+    let ptr = match window.ns_window() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("tra: no NSWindow handle: {e}");
+            return;
+        }
+    };
+    if ptr.is_null() {
+        return;
+    }
+
+    // SAFETY: Tauri hands back the live NSWindow backing this webview window,
+    // and the reference is used only for the duration of this call.
+    unsafe {
+        let ns_window = &*(ptr as *const NSWindow);
+        ns_window.setCollectionBehavior(
+            NSWindowCollectionBehavior::CanJoinAllSpaces
+                | NSWindowCollectionBehavior::FullScreenAuxiliary,
+        );
+    }
+}
+
 /// Gap between the pointer and the popup's corner, in physical pixels.
 /// Enough that the window does not open underneath the cursor.
 const CURSOR_GAP: i32 = 12;
@@ -83,6 +121,17 @@ pub fn show(app: &AppHandle) {
         );
         return;
     };
+
+    // Follow the user to whichever Space they are on. Without this the window
+    // stays bound to the desktop it was created on and opens correctly —
+    // visible, focused, positioned — on a Space nobody is looking at, which is
+    // indistinguishable from the hotkey doing nothing. Re-applied on every
+    // show because the active Space changes between lookups.
+    if let Err(e) = window.set_visible_on_all_workspaces(true) {
+        eprintln!("tra: could not make the window follow Spaces: {e}");
+    }
+    #[cfg(target_os = "macos")]
+    allow_over_fullscreen(&window);
 
     // Best-effort: failing to position is not a reason to withhold the window.
     // It would simply open wherever it last was.
@@ -129,6 +178,26 @@ fn position_at_cursor(app: &AppHandle, window: &WebviewWindow) -> tauri::Result<
     let max_y = origin.y + area.height as i32 - size.height as i32;
     let x = (cursor.x as i32 + CURSOR_GAP).min(max_x).max(origin.x);
     let y = (cursor.y as i32 + CURSOR_GAP).min(max_y).max(origin.y);
+
+    eprintln!(
+        "tra: cursor={:?} chosen_monitor=(origin={:?} size={:?} scale={}) win_size={:?} -> ({x},{y})",
+        cursor,
+        origin,
+        area,
+        monitor.scale_factor(),
+        size,
+    );
+    if let Ok(all) = app.available_monitors() {
+        for m in all {
+            eprintln!(
+                "tra:   monitor {:?} origin={:?} size={:?} scale={}",
+                m.name(),
+                m.position(),
+                m.size(),
+                m.scale_factor()
+            );
+        }
+    }
 
     window.set_position(tauri::PhysicalPosition::new(x, y))
 }

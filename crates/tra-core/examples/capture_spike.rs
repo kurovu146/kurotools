@@ -78,17 +78,27 @@ fn main() {
     }
 
     // Question 2, and the one most likely to be quietly wrong.
+    //
+    // Checked twice, deliberately. An immediate check passes even when the
+    // application's copy is still in flight and about to overwrite what we
+    // restored — which is exactly the bug this found in Ghostty/tmux, where
+    // the write landed after the restore. The second check, one second later,
+    // is the one that actually tells the truth.
     println!();
+    report_clipboard("immediately");
+    std::thread::sleep(Duration::from_secs(1));
+    report_clipboard("one second later");
+}
+
+fn report_clipboard(when: &str) {
     match get_clipboard() {
-        Ok(after) if after == CANARY => {
-            println!("Clipboard RESTORED correctly.");
-        }
+        Ok(after) if after == CANARY => println!("Clipboard intact {when}."),
         Ok(after) => {
-            println!("CLIPBOARD WAS NOT RESTORED — this is a bug.");
+            println!("CLIPBOARD LOST {when} — this is a bug.");
             println!("  expected: {CANARY:?}");
             println!("  found   : {:?}", truncate(&after, 120));
         }
-        Err(e) => println!("Could not read the clipboard back: {e}"),
+        Err(e) => println!("Could not read the clipboard back {when}: {e}"),
     }
 }
 
