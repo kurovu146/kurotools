@@ -37,8 +37,8 @@ pub fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
 pub fn show_with_selection(app: &AppHandle) {
     let app = app.clone();
 
-    // Capture polls the clipboard for up to ~400ms. On the UI thread that is a
-    // visible freeze of whatever the user is doing.
+    // Capture polls the clipboard for up to COPY_TIMEOUT. On the UI thread that
+    // is a visible freeze of whatever the user is doing.
     tauri::async_runtime::spawn_blocking(move || {
         let event = capture_now();
         show(&app);
@@ -80,29 +80,45 @@ fn capture_now() -> CaptureEvent {
 /// Both flags are set together deliberately: `setCollectionBehavior` replaces
 /// the whole mask rather than adding to it, so setting only the new flag would
 /// undo the call above.
+///
+/// **Must be dispatched to the main thread.** AppKit is main-thread-only, and
+/// `show` runs on a blocking worker (see [`show_with_selection`]). Calling
+/// `setCollectionBehavior` directly from there crashed the app with
+/// `EXC_BREAKPOINT` inside `-[NSWindow setCollectionBehavior:]`. Tauri's own
+/// window methods hide this by dispatching internally; a raw objc2 call does
+/// not, which is exactly the invariant `MainThreadMarker` exists to enforce
+/// and which casting a raw pointer bypasses.
 #[cfg(target_os = "macos")]
 fn allow_over_fullscreen(window: &WebviewWindow) {
-    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+    let window = window.clone();
+    let dispatched = window.clone().run_on_main_thread(move || {
+        use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
 
-    let ptr = match window.ns_window() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("tra: no NSWindow handle: {e}");
+        let ptr = match window.ns_window() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("tra: no NSWindow handle: {e}");
+                return;
+            }
+        };
+        if ptr.is_null() {
             return;
         }
-    };
-    if ptr.is_null() {
-        return;
-    }
 
-    // SAFETY: Tauri hands back the live NSWindow backing this webview window,
-    // and the reference is used only for the duration of this call.
-    unsafe {
-        let ns_window = &*(ptr as *const NSWindow);
-        ns_window.setCollectionBehavior(
-            NSWindowCollectionBehavior::CanJoinAllSpaces
-                | NSWindowCollectionBehavior::FullScreenAuxiliary,
-        );
+        // SAFETY: Tauri hands back the live NSWindow backing this webview
+        // window; the reference is used only for the duration of this call,
+        // and this closure runs on the main thread, as AppKit requires.
+        unsafe {
+            let ns_window = &*(ptr as *const NSWindow);
+            ns_window.setCollectionBehavior(
+                NSWindowCollectionBehavior::CanJoinAllSpaces
+                    | NSWindowCollectionBehavior::FullScreenAuxiliary,
+            );
+        }
+    });
+
+    if let Err(e) = dispatched {
+        eprintln!("tra: could not reach the main thread to set collection behavior: {e}");
     }
 }
 
@@ -178,26 +194,6 @@ fn position_at_cursor(app: &AppHandle, window: &WebviewWindow) -> tauri::Result<
     let max_y = origin.y + area.height as i32 - size.height as i32;
     let x = (cursor.x as i32 + CURSOR_GAP).min(max_x).max(origin.x);
     let y = (cursor.y as i32 + CURSOR_GAP).min(max_y).max(origin.y);
-
-    eprintln!(
-        "tra: cursor={:?} chosen_monitor=(origin={:?} size={:?} scale={}) win_size={:?} -> ({x},{y})",
-        cursor,
-        origin,
-        area,
-        monitor.scale_factor(),
-        size,
-    );
-    if let Ok(all) = app.available_monitors() {
-        for m in all {
-            eprintln!(
-                "tra:   monitor {:?} origin={:?} size={:?} scale={}",
-                m.name(),
-                m.position(),
-                m.size(),
-                m.scale_factor()
-            );
-        }
-    }
 
     window.set_position(tauri::PhysicalPosition::new(x, y))
 }
