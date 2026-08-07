@@ -20,7 +20,15 @@ const SHOW_FLAG: &str = "--show";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.plugin(tauri_nspanel::init());
+    }
+
+    builder
         // Must be registered before anything else so a second launch is
         // intercepted rather than half-initialising a duplicate app.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -74,13 +82,14 @@ pub fn run() {
             // Hidden until summoned. The window exists from launch so the
             // first hotkey press has no webview startup cost in front of it.
             if let Some(window) = app.get_webview_window(popup::MAIN_WINDOW) {
-                // setup runs on the main thread, which is the only place AppKit
-                // may be touched — and doing it once here means the behaviour
-                // is already in force before the first show, rather than racing
-                // it. See configure_space_behavior for why per-show failed.
-                popup::configure_space_behavior(&window);
                 let _ = window.hide();
             }
+
+            // Convert the window to a non-activating panel. Must come after the
+            // window exists, and must be on the main thread — setup is both.
+            // This is what lets the popup appear over a fullscreen app without
+            // dragging the user off that Space.
+            popup::configure_space_behavior(app.handle());
 
             Ok(())
         })

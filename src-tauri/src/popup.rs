@@ -36,10 +36,10 @@ pub fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
 /// The window only appears once there is something to put in it.
 /// Hotkey entry point: show the popup, or dismiss it if it is already up.
 ///
-/// The hotkey has to double as the dismiss key because the popup is shown
-/// **without activating the app** (see [`order_front_without_activating`]), so it
-/// never receives keyboard focus — Esc never reaches it, and a blur event never
-/// fires either. Without a toggle the popup would have no way to close.
+/// Pressing the hotkey while the popup is up dismisses it. Esc and click-away
+/// also work, but the toggle is the reliable one: the popup is shown without
+/// activating the application, so focus behaviour around it is subtler than for
+/// an ordinary window.
 pub fn toggle_with_selection(app: &AppHandle) {
     if let Some(window) = main_window(app) {
         if window.is_visible().unwrap_or(false) {
@@ -84,141 +84,85 @@ fn capture_now() -> CaptureEvent {
     }
 }
 
-/// Let the popup appear over another app's **fullscreen** Space.
+/// Turn the popup into a non-activating `NSPanel`.
 ///
-/// `set_visible_on_all_workspaces` sets `CanJoinAllSpaces`, which covers
-/// ordinary desktop Spaces and nothing else. A fullscreen app owns its own
-/// Space, and macOS will not put a window there unless the window also
-/// declares `FullScreenAuxiliary` — so with only `CanJoinAllSpaces` the popup
-/// reports visible, focused and correctly positioned while being impossible to
-/// see. Tauri exposes no API for this, hence reaching for the `NSWindow`.
+/// This is the only arrangement that satisfies both requirements at once, and
+/// it took ruling out every alternative to establish:
 ///
-/// Both flags are set together deliberately: `setCollectionBehavior` replaces
-/// the whole mask rather than adding to it, so setting only the new flag would
-/// undo the call above.
+/// - Activating the app (Tauri's `set_focus`, or `NSApp.activate`) *does* place
+///   the window over a fullscreen app — by forcing macOS off that Space, which
+///   yanks the user away from what they were reading.
+/// - Not activating keeps the Space, but a plain `NSWindow` then cannot be
+///   placed on it at all, and receives no keyboard input.
 ///
-/// # Call this once, at startup, from the main thread
+/// A panel with `NSWindowStyleMaskNonactivatingPanel` resolves the
+/// contradiction: it can be shown and take key events **without** its
+/// application becoming active, so the fullscreen Space stays put and Esc still
+/// works.
 ///
-/// Two reasons it cannot live in [`show`]:
-///
-/// - AppKit is main-thread-only and `show` runs on a blocking worker, so it
-///   would need `run_on_main_thread` — which is **asynchronous**. The closure
-///   would be queued and `window.show()` would run first, placing the window
-///   before the behaviour applied. Calling it from `setup` needs no dispatch
-///   at all, because `setup` already runs on the main thread.
-/// - Tauri's `set_visible_on_all_workspaces` is itself a
-///   `setCollectionBehavior` call carrying only `CanJoinAllSpaces`, so the two
-///   overwrite each other. This function sets both flags, which makes that
-///   call redundant — `show` no longer makes it.
-///
-/// Calling `setCollectionBehavior` off the main thread crashed the app with
-/// `EXC_BREAKPOINT` inside `-[NSWindow setCollectionBehavior:]`. Tauri's own
-/// window methods hide that by dispatching internally; a raw objc2 call does
-/// not, which is the invariant `MainThreadMarker` enforces and that casting a
-/// raw pointer bypasses.
+/// Called once from `setup`, which already runs on the main thread.
 #[cfg(target_os = "macos")]
-pub fn configure_space_behavior(window: &WebviewWindow) {
-    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+pub fn configure_space_behavior(app: &AppHandle) {
+    use tauri_nspanel::cocoa::appkit::NSWindowCollectionBehavior;
+    use tauri_nspanel::WebviewWindowExt as _;
 
-    let ptr = match window.ns_window() {
-        Ok(p) => p,
+    let Some(window) = main_window(app) else {
+        return;
+    };
+
+    let panel = match window.to_panel() {
+        Ok(panel) => panel,
         Err(e) => {
-            eprintln!("tra: no NSWindow handle: {e}");
+            eprintln!("tra: could not convert the window to an NSPanel: {e:?}");
             return;
         }
     };
-    if ptr.is_null() {
-        return;
-    }
 
-    // SAFETY: Tauri hands back the live NSWindow backing this webview window;
-    // the reference is used only for the duration of this call, and the caller
-    // guarantees the main thread, as AppKit requires.
-    unsafe {
-        let ns_window = &*(ptr as *const NSWindow);
+    // 1 << 7 — NSWindowStyleMaskNonactivatingPanel. The whole reason for the
+    // panel: showing it does not activate the application.
+    const NONACTIVATING_PANEL: i32 = 1 << 7;
+    panel.set_style_mask(NONACTIVATING_PANEL);
 
-        // MoveToActiveSpace, *not* CanJoinAllSpaces.
-        //
-        // CanJoinAllSpaces is passive — "this window may appear on any Space" —
-        // and in practice it never pulls the window onto another application's
-        // fullscreen Space. MoveToActiveSpace is active: the window is moved to
-        // whatever Space is current when this application is activated. That
-        // activation-driven behaviour is what makes it work where the other
-        // flag silently does nothing.
-        //
-        // FullScreenAuxiliary is still required alongside it, to permit a
-        // fullscreen Space as a destination at all.
-        //
-        // Preserved rather than replaced: setCollectionBehavior overwrites the
-        // whole mask, so read-modify-write keeps whatever Tauri already set.
-        // CanJoinAllSpaces and MoveToActiveSpace are mutually exclusive: with
-        // both set the mask is contradictory and macOS ignores the intent,
-        // falling back to switching the user to the window's Space. Tauri may
-        // already have set CanJoinAllSpaces, so it is cleared explicitly rather
-        // than OR-ing on top of it.
-        let existing =
-            ns_window.collectionBehavior() & !NSWindowCollectionBehavior::MoveToActiveSpace;
-        let behavior = existing
-            | NSWindowCollectionBehavior::CanJoinAllSpaces
-            | NSWindowCollectionBehavior::FullScreenAuxiliary;
-        ns_window.setCollectionBehavior(behavior);
-    }
+    // Permit the panel onto any Space, including another app's fullscreen one.
+    panel.set_collection_behaviour(
+        NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
+    );
+
+    // Float above ordinary windows. NSFloatingWindowLevel.
+    panel.set_level(3);
+
+    // Without this the panel vanishes whenever another app becomes active,
+    // which for a popup summoned over someone else's window is immediate.
+    panel.set_hides_on_deactivate(false);
 }
 
 /// Non-macOS: Tauri's own API is enough, and there is no fullscreen-Space
 /// concept to work around.
 #[cfg(not(target_os = "macos"))]
-pub fn configure_space_behavior(window: &WebviewWindow) {
-    if let Err(e) = window.set_visible_on_all_workspaces(true) {
-        eprintln!("tra: could not make the window follow workspaces: {e}");
+pub fn configure_space_behavior(app: &AppHandle) {
+    if let Some(window) = main_window(app) {
+        if let Err(e) = window.set_visible_on_all_workspaces(true) {
+            eprintln!("tra: could not make the window follow workspaces: {e}");
+        }
     }
 }
 
-/// Show the window on macOS **without activating this application**.
+/// Show the panel without activating the application.
 ///
-/// Activating is what pulls the user out of a fullscreen Space. macOS will not
-/// keep a fullscreen app frontmost while another app becomes active, so any
-/// path that activates — Tauri's `set_focus`, or
-/// `NSApp.activate(ignoringOtherApps:)` — makes the popup appear by dragging
-/// the user off the window they were reading. Measured, and rejected as worse
-/// than not appearing at all.
-///
-/// `orderFrontRegardless` shows the window without activation, so the
-/// fullscreen Space stays put. Paired with `CanJoinAllSpaces` and
-/// `FullScreenAuxiliary`, which permit the window to be placed there.
-///
-/// **The cost, accepted deliberately:** a non-activating `NSWindow` receives no
-/// keyboard focus, so Esc never reaches the popup and no blur event fires.
-/// [`toggle_with_selection`] is what closes it instead. Getting both fullscreen
-/// and keyboard needs an `NSPanel` with `.nonactivatingPanel`, which Tauri does
-/// not create and cannot be changed at runtime.
-///
-/// Dispatched to the main thread, as all AppKit calls must be.
+/// `make_key_window` on a non-activating panel gives it keyboard focus while
+/// leaving the frontmost application active — which is what restores Esc and
+/// typing that the plain-`NSWindow` approach had to give up.
 #[cfg(target_os = "macos")]
-fn order_front_without_activating(window: &WebviewWindow) {
-    let target = window.clone();
-    let dispatched = window.clone().run_on_main_thread(move || {
-        use objc2_app_kit::NSWindow;
+fn show_panel(app: &AppHandle) {
+    use tauri_nspanel::ManagerExt as _;
 
-        let Ok(ptr) = target.ns_window() else { return };
-        if ptr.is_null() {
-            return;
+    match app.get_webview_panel(MAIN_WINDOW) {
+        Ok(panel) => {
+            panel.order_front_regardless();
+            panel.make_key_window();
         }
-
-        // SAFETY: the live NSWindow behind this webview window, used only for
-        // these calls, on the main thread as AppKit requires.
-        unsafe {
-            let ns_window = &*(ptr as *const NSWindow);
-            // EXPERIMENT: no activation at all. Activating forces macOS out of
-            // a fullscreen Space, which is the "it appears but you get moved"
-            // symptom. orderFrontRegardless shows the window without making
-            // this app active.
-            ns_window.orderFrontRegardless();
-        }
-    });
-
-    if let Err(e) = dispatched {
-        eprintln!("tra: could not activate and order the window front: {e}");
+        Err(e) => eprintln!("tra: no panel registered for {MAIN_WINDOW:?}: {e:?}"),
     }
 }
 
@@ -238,20 +182,18 @@ pub fn show(app: &AppHandle) {
         return;
     };
 
-    // Nothing here touches the window's Space behaviour: that is set once at
-    // startup by configure_space_behavior. Setting it per-show meant an async
-    // main-thread hop that landed after window.show(), and Tauri's
-    // set_visible_on_all_workspaces overwriting the fullscreen flag each time.
+    // Space behaviour is configured once at startup by configure_space_behavior.
 
     // Best-effort: failing to position is not a reason to withhold the window.
     // It would simply open wherever it last was.
     if let Err(e) = position_at_cursor(app, &window) {
         eprintln!("tra: could not position the window: {e}");
     }
-    // On macOS the window is shown by activate_and_order_front below, not here.
-    // Ordering it in first would place it on the Space it is currently on, and
-    // the activation that follows would then *switch the user to that Space*
-    // instead of bringing the window to them.
+    // macOS goes through the panel, which shows and takes keys without making
+    // this application active — see configure_space_behavior.
+    #[cfg(target_os = "macos")]
+    show_panel(app);
+
     #[cfg(not(target_os = "macos"))]
     {
         if let Err(e) = window.show() {
@@ -261,9 +203,6 @@ pub fn show(app: &AppHandle) {
             eprintln!("tra: could not focus the window: {e}");
         }
     }
-
-    #[cfg(target_os = "macos")]
-    order_front_without_activating(&window);
 }
 
 /// Put the popup beside the pointer, fully inside the monitor the pointer is on.
@@ -306,6 +245,18 @@ fn position_at_cursor(app: &AppHandle, window: &WebviewWindow) -> tauri::Result<
 /// would put a visible delay in front of the one interaction that must feel
 /// instant.
 pub fn hide(app: &AppHandle) {
+    // The panel is ordered out directly. Tauri's window.hide() operates on the
+    // NSWindow it thinks it owns, which after the panel conversion is no longer
+    // the whole story.
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::ManagerExt as _;
+        if let Ok(panel) = app.get_webview_panel(MAIN_WINDOW) {
+            panel.order_out(None);
+            return;
+        }
+    }
+
     if let Some(window) = main_window(app) {
         let _ = window.hide();
     }
