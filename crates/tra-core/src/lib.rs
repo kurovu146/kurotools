@@ -7,3 +7,4 @@
 //! `tests/no_tauri_dep.rs` enforces the "no tauri dependency" rule.
 
 pub mod capture;
+pub mod model;
