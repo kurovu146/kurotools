@@ -153,16 +153,29 @@ pub fn configure_space_behavior(app: &AppHandle) {
 /// `make_key_window` on a non-activating panel gives it keyboard focus while
 /// leaving the frontmost application active — which is what restores Esc and
 /// typing that the plain-`NSWindow` approach had to give up.
+///
+/// **Must run on the main thread.** `tauri-nspanel` calls straight into AppKit
+/// without dispatching, and `show` runs on a blocking worker so capture cannot
+/// freeze the UI. Calling it directly from there crashed with `EXC_BREAKPOINT`
+/// inside `-[NSWindow _doOrderWindow:]`. Tauri's own window methods dispatch
+/// internally and hide this; the plugin's do not.
 #[cfg(target_os = "macos")]
 fn show_panel(app: &AppHandle) {
-    use tauri_nspanel::ManagerExt as _;
+    let app = app.clone();
+    let dispatched = app.clone().run_on_main_thread(move || {
+        use tauri_nspanel::ManagerExt as _;
 
-    match app.get_webview_panel(MAIN_WINDOW) {
-        Ok(panel) => {
-            panel.order_front_regardless();
-            panel.make_key_window();
+        match app.get_webview_panel(MAIN_WINDOW) {
+            Ok(panel) => {
+                panel.order_front_regardless();
+                panel.make_key_window();
+            }
+            Err(e) => eprintln!("tra: no panel registered for {MAIN_WINDOW:?}: {e:?}"),
         }
-        Err(e) => eprintln!("tra: no panel registered for {MAIN_WINDOW:?}: {e:?}"),
+    });
+
+    if let Err(e) = dispatched {
+        eprintln!("tra: could not reach the main thread to show the panel: {e}");
     }
 }
 
@@ -250,13 +263,24 @@ pub fn hide(app: &AppHandle) {
     // the whole story.
     #[cfg(target_os = "macos")]
     {
-        use tauri_nspanel::ManagerExt as _;
-        if let Ok(panel) = app.get_webview_panel(MAIN_WINDOW) {
-            panel.order_out(None);
-            return;
-        }
+        // Same main-thread requirement as show_panel: order_out is an AppKit
+        // call and the callers here include the hotkey handler's thread.
+        let handle = app.clone();
+        let _ = app.clone().run_on_main_thread(move || {
+            use tauri_nspanel::ManagerExt as _;
+            match handle.get_webview_panel(MAIN_WINDOW) {
+                Ok(panel) => panel.order_out(None),
+                Err(_) => {
+                    if let Some(window) = handle.get_webview_window(MAIN_WINDOW) {
+                        let _ = window.hide();
+                    }
+                }
+            }
+        });
+        return;
     }
 
+    #[cfg(not(target_os = "macos"))]
     if let Some(window) = main_window(app) {
         let _ = window.hide();
     }
