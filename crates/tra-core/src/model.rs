@@ -70,18 +70,14 @@ impl Lookup {
 /// input is multi-byte throughout — so a byte-based cap would both truncate
 /// early and eventually panic on real user text.
 pub fn truncate_source(text: &str) -> (String, bool) {
-    let mut out = String::with_capacity(text.len().min(MAX_CHARS * 4));
-    let mut count = 0usize;
-
-    for ch in text.chars() {
-        if count == MAX_CHARS {
-            return (out, true);
-        }
-        out.push(ch);
-        count += 1;
+    // `char_indices().nth(MAX_CHARS)` yields the byte offset of the first
+    // character *past* the cap, or None when the text is within it. That
+    // offset is a character boundary by construction, so the slice below can
+    // never panic — which is the property a byte-arithmetic version lacks.
+    match text.char_indices().nth(MAX_CHARS) {
+        Some((byte_offset, _)) => (text[..byte_offset].to_owned(), true),
+        None => (text.to_owned(), false),
     }
-
-    (out, false)
 }
 
 #[cfg(test)]
@@ -125,7 +121,11 @@ mod tests {
         let (out, cut) = truncate_source(&long);
         assert!(cut);
         assert_eq!(out.chars().count(), MAX_CHARS);
-        assert_eq!(out.len(), MAX_CHARS * 3, "should have cut on chars, not bytes");
+        assert_eq!(
+            out.len(),
+            MAX_CHARS * 3,
+            "should have cut on chars, not bytes"
+        );
     }
 
     #[test]

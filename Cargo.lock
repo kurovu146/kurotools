@@ -3982,6 +3982,7 @@ dependencies = [
  "core-foundation",
  "core-graphics",
  "serde",
+ "serde_json",
  "thiserror 2.0.19",
  "windows 0.62.2",
 ]

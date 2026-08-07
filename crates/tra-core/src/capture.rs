@@ -216,8 +216,8 @@ fn synthesize_copy() -> Result<()> {
 #[cfg(target_os = "windows")]
 fn synthesize_copy() -> Result<()> {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-        KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_C, VK_CONTROL,
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+        VIRTUAL_KEY, VK_C, VK_CONTROL,
     };
 
     fn key(vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
@@ -283,11 +283,12 @@ pub fn has_accessibility_permission() -> bool {
 #[cfg(target_os = "macos")]
 pub fn request_accessibility_permission() -> bool {
     use core_foundation::base::TCFType;
-    use core_foundation::dictionary::CFDictionary;
     use core_foundation::boolean::CFBoolean;
+    use core_foundation::dictionary::CFDictionary;
     use core_foundation::string::CFString;
 
-    let key = unsafe { CFString::wrap_under_get_rule(accessibility_sys::kAXTrustedCheckOptionPrompt) };
+    let key =
+        unsafe { CFString::wrap_under_get_rule(accessibility_sys::kAXTrustedCheckOptionPrompt) };
     let options = CFDictionary::from_CFType_pairs(&[(key, CFBoolean::true_value())]);
 
     unsafe { accessibility_sys::AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) }

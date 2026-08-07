@@ -62,5 +62,8 @@ fn the_guard_would_actually_catch_a_violation() {
                 .unwrap_or(false)
     });
 
-    assert!(found, "the tauri-dependency detection failed to flag an obvious violation");
+    assert!(
+        found,
+        "the tauri-dependency detection failed to flag an obvious violation"
+    );
 }
