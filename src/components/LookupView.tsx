@@ -20,7 +20,7 @@ export function LookupView({ result }: { result: Lookup }) {
   const hasDefinitions = result.definitions.length > 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto pb-3">
+    <div className="flex flex-col pb-3">
       {hasDefinitions ? (
         <Section label="English" action={<SourceActions text={result.source} />}>
           <Headword

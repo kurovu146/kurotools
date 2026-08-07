@@ -19,9 +19,9 @@ interface SectionProps {
  */
 export function Section({ label, children, action }: SectionProps) {
   return (
-    <section className="flex min-h-0 flex-col px-4">
+    <section className="flex flex-col px-4">
       <header className="flex shrink-0 items-center gap-3 pt-3 pb-1.5">
-        <h2 className="text-[15px] text-neutral-800 dark:text-neutral-200">
+        <h2 className="text-[15px] text-neutral-700 dark:text-neutral-300">
           {label}
         </h2>
         <span
@@ -30,7 +30,7 @@ export function Section({ label, children, action }: SectionProps) {
         />
         {action}
       </header>
-      <div className="min-h-0 overflow-y-auto pb-1 text-[13px] text-neutral-900 dark:text-neutral-100">
+      <div className="pb-1 text-[13px] text-neutral-900 dark:text-neutral-100">
         {children}
       </div>
     </section>

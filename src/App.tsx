@@ -4,6 +4,7 @@ import { LookupView } from "./components/LookupView";
 import { Muted } from "./components/Section";
 import { PermissionGate } from "./components/PermissionGate";
 import { lookup, type Lookup } from "./lookup";
+import { useHeightFitsContent, useSystemTheme } from "./window";
 
 type State =
   | { kind: "idle" }
@@ -14,6 +15,9 @@ type State =
 export default function App() {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [query, setQuery] = useState("");
+
+  useSystemTheme();
+  const contentRef = useHeightFitsContent<HTMLDivElement>();
 
   const run = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -62,7 +66,10 @@ export default function App() {
 
   if (state.kind === "needsPermission") {
     return (
-      <main className="h-full bg-white/70 text-neutral-900 dark:bg-neutral-900/60 dark:text-neutral-50">
+      <main
+        ref={contentRef}
+        className="bg-neutral-200/60 text-neutral-900 dark:bg-neutral-800/40 dark:text-neutral-50"
+      >
         <PermissionGate
           onGranted={() => setState({ kind: "idle" })}
           onSkip={() => setState({ kind: "idle" })}
@@ -71,40 +78,49 @@ export default function App() {
     );
   }
 
-  return (
-    // Only a faint tint: the blur behind it is the native vibrancy layer, and
-    // an opaque background here would hide it entirely.
-    <main className="flex h-full flex-col bg-white/45 text-neutral-900 dark:bg-neutral-900/35 dark:text-neutral-50">
-      <form
-        className="shrink-0 px-3 pt-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void run(query);
-        }}
-      >
-        <input
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Look up a word…"
-          aria-label="Text to look up"
-          className="w-full rounded-lg bg-black/5 px-3 py-1.5 font-sans text-[13px] outline-none placeholder:text-neutral-500 focus:ring-2 focus:ring-sky-500/60 dark:bg-white/10 dark:placeholder:text-neutral-400"
-        />
-      </form>
+  // The search box only appears when there is nothing to read. The system
+  // panel has no input at all, and once a result is on screen the field is
+  // just a bright bar sitting above the thing you actually wanted.
+  const showInput = state.kind === "idle";
 
-      <div className="min-h-0 flex-1">
-        {state.kind === "idle" && (
-          <div className="p-4">
-            <Muted>Select text anywhere, then press the hotkey.</Muted>
-          </div>
-        )}
-        {state.kind === "loading" && (
-          <div className="p-4">
-            <Muted>Looking up “{state.text}”…</Muted>
-          </div>
-        )}
-        {state.kind === "done" && <LookupView result={state.result} />}
-      </div>
+  return (
+    // No tint over the vibrancy — a background here paints over the blur and
+    // turns the panel into a flat slab, which is exactly how the first attempt
+    // looked. Only the text colours are set.
+    <main
+      ref={contentRef}
+      className="text-neutral-900 dark:text-neutral-100"
+    >
+      {showInput && (
+        <form
+          className="px-4 pt-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void run(query);
+          }}
+        >
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Look up a word…"
+            aria-label="Text to look up"
+            className="w-full rounded-lg bg-black/5 px-3 py-1.5 font-sans text-[13px] outline-none placeholder:text-neutral-500 focus:bg-black/10 dark:bg-white/10 dark:placeholder:text-neutral-400 dark:focus:bg-white/15"
+          />
+        </form>
+      )}
+
+      {state.kind === "idle" && (
+        <div className="px-4 pt-2 pb-4">
+          <Muted>Select text anywhere, then press the hotkey.</Muted>
+        </div>
+      )}
+      {state.kind === "loading" && (
+        <div className="p-4">
+          <Muted>Looking up “{state.text}”…</Muted>
+        </div>
+      )}
+      {state.kind === "done" && <LookupView result={state.result} />}
     </main>
   );
 }

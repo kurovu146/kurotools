@@ -1,8 +1,14 @@
 @import "tailwindcss";
 
-/* The window itself is transparent so the native vibrancy layer shows through;
-   the rounded card is drawn in CSS by #root. Any opaque background here would
-   cover the blur and square off the corners. */
+/* Dark mode is driven by a class on <html>, set from Tauri's own window theme
+   (see useSystemTheme). The webview does not reliably report
+   prefers-color-scheme through a transparent, vibrancy-backed window — it
+   reported light on a dark system, which rendered the panel as a flat grey
+   slab instead of a dark translucent one. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* The window is transparent so the native vibrancy layer shows through; the
+   rounded card is drawn here. Any opaque background covers the blur. */
 html,
 body,
 #root {
@@ -13,8 +19,8 @@ body,
 }
 
 #root {
-  /* Matches the corner radius passed to apply_vibrancy, so the blurred layer
-     and the content are clipped to the same shape. */
+  /* Matches the radius passed to apply_vibrancy, so the blurred layer and the
+     content clip to the same shape. */
   border-radius: 12px;
   overflow: hidden;
 }
@@ -22,7 +28,7 @@ body,
 body {
   /* The system Look Up panel is set in a serif face; matching it is most of
      why this reads as a dictionary rather than a web page. New York is the
-     system serif on macOS, with ui-serif covering newer versions. */
+     macOS system serif, with ui-serif covering newer versions. */
   font-family: ui-serif, "New York", Georgia, "Times New Roman", serif;
   /* Vietnamese diacritics stack above and below the baseline; the default
      line-height clips them at small sizes. */
