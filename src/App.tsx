@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
+import { hidePopup, onCapture } from "./capture";
 import { LookupView } from "./components/LookupView";
 import { Muted } from "./components/Pane";
+import { PermissionGate } from "./components/PermissionGate";
 import { lookup, type Lookup } from "./lookup";
 
 type State =
   | { kind: "idle" }
   | { kind: "loading"; text: string }
-  | { kind: "done"; result: Lookup };
+  | { kind: "done"; result: Lookup }
+  | { kind: "needsPermission" };
 
 export default function App() {
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -14,7 +17,10 @@ export default function App() {
 
   const run = useCallback(async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      setState({ kind: "idle" });
+      return;
+    }
 
     setState({ kind: "loading", text: trimmed });
     // `lookup` cannot reject — the Rust side turns every failure into an
@@ -22,19 +28,48 @@ export default function App() {
     setState({ kind: "done", result: await lookup(trimmed) });
   }, []);
 
-  // Esc dismisses. Wired here rather than on a focused element so it works
-  // regardless of what the user last clicked. Hiding the window is the shell's
-  // job (Task 6); until then this clears back to the input.
+  // The hotkey path: the shell captures the selection and emits it.
+  useEffect(() => {
+    const unlisten = onCapture((event) => {
+      switch (event.kind) {
+        case "text":
+          setQuery(event.text);
+          void run(event.text);
+          break;
+        case "needsPermission":
+          setState({ kind: "needsPermission" });
+          break;
+        case "empty":
+          setState({ kind: "idle" });
+          setQuery("");
+          break;
+      }
+    });
+    return () => {
+      void unlisten.then((f) => f());
+    };
+  }, [run]);
+
+  // Esc dismisses. Bound to the window rather than an element so it works
+  // whatever the user last clicked.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setState({ kind: "idle" });
-        setQuery("");
-      }
+      if (e.key === "Escape") void hidePopup();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  if (state.kind === "needsPermission") {
+    return (
+      <main className="h-full bg-white text-neutral-900 dark:bg-neutral-900 dark:text-neutral-50">
+        <PermissionGate
+          onGranted={() => setState({ kind: "idle" })}
+          onSkip={() => setState({ kind: "idle" })}
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="flex h-full flex-col bg-white text-neutral-900 dark:bg-neutral-900 dark:text-neutral-50">

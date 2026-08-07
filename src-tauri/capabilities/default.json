@@ -5,6 +5,12 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    "positioner:default",
+    "autostart:default",
+    "core:event:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus"
   ]
 }
