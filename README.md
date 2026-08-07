@@ -58,6 +58,21 @@ grant is detected without restarting the app.
 **Declining is fine.** Tra still works — copy the text first, then press the
 hotkey. That path needs no permission at all.
 
+## Inside tmux, copy first
+
+Select-then-hotkey **does not work inside a terminal multiplexer**, and cannot
+be made to. With `mouse on`, dragging creates a *tmux* selection; tmux owns it
+internally and only hands it to the system clipboard when you press your copy
+binding. The synthesized ⌘C reaches the terminal emulator, which has no
+selection of its own, so nothing is copied.
+
+In tmux, use your normal copy key first — with the common vi-mode binding
+that's `y` — then press the hotkey. Tra reads the clipboard and works exactly
+as usual.
+
+Everywhere else (browsers, PDFs, editors, chat apps) select-then-hotkey works;
+measured at ~100ms.
+
 ## Linux: Wayland
 
 Global shortcuts on Wayland depend on your compositor implementing the XDG

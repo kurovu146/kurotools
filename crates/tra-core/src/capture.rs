@@ -35,11 +35,17 @@ use std::time::Duration;
 /// rather than sleeping once and hoping — this value is the polling budget,
 /// not a fixed sleep, so a fast app still answers in ~20ms.
 ///
-/// Measured: 400ms was **too short**. Ghostty with tmux took over 450ms, so
-/// every capture there failed *and* the late write then landed after the
-/// restore, destroying the user's clipboard. Terminals are the slowest case
-/// and also a primary target, so the budget is set well past them.
-const COPY_TIMEOUT: Duration = Duration::from_millis(1500);
+/// Measured on real hardware: a successful capture from a browser takes
+/// **~100ms**. This budget is deliberately ~8× that, to absorb a loaded
+/// machine or a slow application, and costs nothing when things are quick
+/// because the loop exits on the first observed change.
+///
+/// It is not set higher, because the budget is also what the user waits when
+/// there is genuinely nothing to capture — and that case is common (see the
+/// tmux note on [`capture_selection`]). The earlier 450ms "slow copies" that
+/// suggested a larger budget were a misreading: those were tmux never copying
+/// at all, not a copy arriving late.
+const COPY_TIMEOUT: Duration = Duration::from_millis(800);
 
 /// After a failed capture, keep watching this long for a late write.
 ///
@@ -88,6 +94,18 @@ pub fn read_clipboard() -> Result<String> {
 /// macOS and Windows it saves the clipboard, synthesizes a copy, polls until
 /// the clipboard changes (or [`COPY_TIMEOUT`] elapses), then restores the
 /// saved contents before returning — on every path, success or failure.
+///
+/// # Terminal multiplexers cannot be captured this way
+///
+/// Verified in Ghostty with `set -g mouse on`: a drag creates a **tmux**
+/// selection, which tmux owns internally and only hands to the system
+/// clipboard on an explicit copy binding. The synthesized copy keystroke goes
+/// to the terminal emulator, which has no selection of its own, so nothing is
+/// ever written and this returns [`CaptureError::NothingSelected`].
+///
+/// This is a property of how multiplexers work, not a bug here, and it cannot
+/// be fixed from this side. Callers should fall back to [`read_clipboard`] so
+/// the user's own copy binding still feeds a lookup.
 pub fn capture_selection() -> Result<String> {
     #[cfg(target_os = "linux")]
     {
