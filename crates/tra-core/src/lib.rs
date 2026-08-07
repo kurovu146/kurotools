@@ -9,3 +9,4 @@
 pub mod capture;
 pub mod model;
 pub mod provider;
+pub mod store;
