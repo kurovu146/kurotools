@@ -39,7 +39,7 @@ browser tab.
 | | |
 |---|---|
 | **Hotkey** | `Cmd+Shift+D` on macOS, `Ctrl+Shift+D` elsewhere |
-| **Dismiss** | `Esc`, or click away |
+| **Dismiss** | press the hotkey again; `Esc` and click-away also work when the popup has focus |
 | **Tray icon** | Show, and Quit |
 | **Also** | type directly into the popup's search box |
 
@@ -60,46 +60,41 @@ hotkey. That path needs no permission at all.
 
 ## macOS: native fullscreen apps
 
-**Known limitation.** The popup does not appear over an app in *native*
-fullscreen — the green-button kind that macOS gives its own Space. Everywhere
-else it works, including ordinary Spaces and maximised windows.
+Works. The popup appears over apps in native fullscreen — the green-button kind
+macOS gives its own Space — and **does not move you off that Space**.
 
-If you work in a fullscreen terminal, one line of Ghostty config fixes it:
+This costs keyboard focus, deliberately. Activating the app is what forces
+macOS to leave a fullscreen Space, so the window is ordered in *without*
+activating (`orderFrontRegardless`, with `CanJoinAllSpaces` and
+`FullScreenAuxiliary`). A non-activating `NSWindow` receives no key events, so:
 
-```
-macos-non-native-fullscreen = true
-```
+- **Esc does not dismiss.** Press the hotkey again — it toggles.
+- **Typing into the search box does not work** while the popup is summoned by
+  the hotkey. Select-then-hotkey is unaffected, which is the main flow.
 
-Ghostty then fills the screen without claiming its own Space, and the popup
-appears over it normally. tmux `zoom` and a maximised window are unaffected
-either way.
+Getting both fullscreen and keyboard needs an `NSPanel` with
+`.nonactivatingPanel`. Tauri creates an `NSWindow`, and the two cannot be
+swapped at runtime, so that would mean patching Tauri's window construction.
 
 <details>
-<summary>What was tried</summary>
-
-Each of these was verified as actually applied, and none was sufficient:
+<summary>What did not work, and why</summary>
 
 | Attempt | Outcome |
 |---|---|
-| `CanJoinAllSpaces \| FullScreenAuxiliary` (reads back `257`) | no effect |
-| Window level raised from 5 to 101 | no effect |
-| Applied once at startup rather than per-show | no effect |
-| `orderFrontRegardless()` | no effect |
+| `CanJoinAllSpaces \| FullScreenAuxiliary` alone | window stays on its own Space |
+| Window level 5 → 101 | no effect |
 | `ActivationPolicy::Regular` instead of `Accessory` | no effect |
+| `MoveToActiveSpace` + `NSApp.activate` | appears, **but drags the user out of fullscreen** |
 
-Only the collection-behaviour flags were kept, since they are the documented
-mechanism for ordinary Spaces; the rest were reverted as unproven.
+The last one is the trap: `MoveToActiveSpace` only fires on activation, and
+activation is precisely what leaves the fullscreen Space. Appearing is not
+enough if the user is yanked away from what they were reading.
 
-The untried difference from launcher utilities that manage this (Raycast,
-Alfred) is that they use an `NSPanel` with `.nonactivatingPanel`, while Tauri
-creates an `NSWindow`. That cannot be changed at runtime — it needs Tauri's
-window construction patched.
-
-Applying the flags inside `show` fails silently two ways, worth knowing if this
-is revisited: `run_on_main_thread` is asynchronous, so the change lands after
-the window is placed, and `set_visible_on_all_workspaces` is itself a
-`setCollectionBehavior` call carrying only `CanJoinAllSpaces`, which wipes the
-fullscreen flag every time.
+Applying the flags inside `show` also fails silently two ways:
+`run_on_main_thread` is asynchronous so the change lands after the window is
+placed, and `set_visible_on_all_workspaces` is itself a `setCollectionBehavior`
+call carrying only `CanJoinAllSpaces`, which overwrites whatever was set. They
+are applied once in `setup`, which already runs on the main thread.
 
 </details>
 

@@ -34,6 +34,22 @@ pub fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
 /// synthesized Cmd+C would then be delivered to *us* instead of to the app
 /// holding the selection — and the capture would come back empty every time.
 /// The window only appears once there is something to put in it.
+/// Hotkey entry point: show the popup, or dismiss it if it is already up.
+///
+/// The hotkey has to double as the dismiss key because the popup is shown
+/// **without activating the app** (see [`order_front_without_activating`]), so it
+/// never receives keyboard focus — Esc never reaches it, and a blur event never
+/// fires either. Without a toggle the popup would have no way to close.
+pub fn toggle_with_selection(app: &AppHandle) {
+    if let Some(window) = main_window(app) {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+            return;
+        }
+    }
+    show_with_selection(app);
+}
+
 pub fn show_with_selection(app: &AppHandle) {
     let app = app.clone();
 
@@ -135,8 +151,15 @@ pub fn configure_space_behavior(window: &WebviewWindow) {
         //
         // Preserved rather than replaced: setCollectionBehavior overwrites the
         // whole mask, so read-modify-write keeps whatever Tauri already set.
-        let behavior = ns_window.collectionBehavior()
-            | NSWindowCollectionBehavior::MoveToActiveSpace
+        // CanJoinAllSpaces and MoveToActiveSpace are mutually exclusive: with
+        // both set the mask is contradictory and macOS ignores the intent,
+        // falling back to switching the user to the window's Space. Tauri may
+        // already have set CanJoinAllSpaces, so it is cleared explicitly rather
+        // than OR-ing on top of it.
+        let existing =
+            ns_window.collectionBehavior() & !NSWindowCollectionBehavior::MoveToActiveSpace;
+        let behavior = existing
+            | NSWindowCollectionBehavior::CanJoinAllSpaces
             | NSWindowCollectionBehavior::FullScreenAuxiliary;
         ns_window.setCollectionBehavior(behavior);
     }
@@ -151,36 +174,32 @@ pub fn configure_space_behavior(window: &WebviewWindow) {
     }
 }
 
-/// Show the window on macOS: activate first, then order front.
+/// Show the window on macOS **without activating this application**.
 ///
-/// **The order is the whole point, and reversing it is user-visible.**
+/// Activating is what pulls the user out of a fullscreen Space. macOS will not
+/// keep a fullscreen app frontmost while another app becomes active, so any
+/// path that activates — Tauri's `set_focus`, or
+/// `NSApp.activate(ignoringOtherApps:)` — makes the popup appear by dragging
+/// the user off the window they were reading. Measured, and rejected as worse
+/// than not appearing at all.
 ///
-/// `MoveToActiveSpace` relocates the window to the current Space when the
-/// application is *activated*. So activation must come first, while the window
-/// is still un-ordered; then ordering it front puts it on the Space the user is
-/// already looking at.
+/// `orderFrontRegardless` shows the window without activation, so the
+/// fullscreen Space stays put. Paired with `CanJoinAllSpaces` and
+/// `FullScreenAuxiliary`, which permit the window to be placed there.
 ///
-/// Doing it the other way round — Tauri's `show()`/`set_focus()` first, then
-/// activating — orders the window in on whatever Space it was last on, and the
-/// activation then drags the user across to that Space. The popup does appear,
-/// but the user has been yanked away from the window they were reading, which
-/// is worse than the popup not appearing at all.
+/// **The cost, accepted deliberately:** a non-activating `NSWindow` receives no
+/// keyboard focus, so Esc never reaches the popup and no blur event fires.
+/// [`toggle_with_selection`] is what closes it instead. Getting both fullscreen
+/// and keyboard needs an `NSPanel` with `.nonactivatingPanel`, which Tauri does
+/// not create and cannot be changed at runtime.
 ///
-/// This is why `show` does not call Tauri's `show()`/`set_focus()` on macOS:
-/// `makeKeyAndOrderFront` here does both.
-///
-/// Mirrors the launcher at github.com/kurovu146/look, which does exactly this.
 /// Dispatched to the main thread, as all AppKit calls must be.
 #[cfg(target_os = "macos")]
-fn activate_and_order_front(window: &WebviewWindow) {
+fn order_front_without_activating(window: &WebviewWindow) {
     let target = window.clone();
     let dispatched = window.clone().run_on_main_thread(move || {
-        use objc2_app_kit::{NSApplication, NSWindow};
-        use objc2_foundation::MainThreadMarker;
+        use objc2_app_kit::NSWindow;
 
-        let Some(mtm) = MainThreadMarker::new() else {
-            return;
-        };
         let Ok(ptr) = target.ns_window() else { return };
         if ptr.is_null() {
             return;
@@ -189,12 +208,12 @@ fn activate_and_order_front(window: &WebviewWindow) {
         // SAFETY: the live NSWindow behind this webview window, used only for
         // these calls, on the main thread as AppKit requires.
         unsafe {
-            let app = NSApplication::sharedApplication(mtm);
-            #[allow(deprecated)]
-            app.activateIgnoringOtherApps(true);
-
             let ns_window = &*(ptr as *const NSWindow);
-            ns_window.makeKeyAndOrderFront(None);
+            // EXPERIMENT: no activation at all. Activating forces macOS out of
+            // a fullscreen Space, which is the "it appears but you get moved"
+            // symptom. orderFrontRegardless shows the window without making
+            // this app active.
+            ns_window.orderFrontRegardless();
         }
     });
 
@@ -244,7 +263,7 @@ pub fn show(app: &AppHandle) {
     }
 
     #[cfg(target_os = "macos")]
-    activate_and_order_front(&window);
+    order_front_without_activating(&window);
 }
 
 /// Put the popup beside the pointer, fully inside the monitor the pointer is on.

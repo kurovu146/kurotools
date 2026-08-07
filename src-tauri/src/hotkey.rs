@@ -33,7 +33,7 @@ pub fn init(app: &App) -> tauri::Result<()> {
                 // Fire on press only. Without this the popup is summoned twice
                 // per keypress — once down, once up.
                 if event.state() == ShortcutState::Pressed {
-                    popup::show_with_selection(app);
+                    popup::toggle_with_selection(app);
                 }
             })
             .build(),
