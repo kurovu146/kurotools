@@ -46,6 +46,16 @@ pub fn hide_popup(app: AppHandle) {
     popup::hide(&app);
 }
 
+/// Turn dismiss-on-blur off while a screen needs to survive losing focus.
+///
+/// The permission gate sends the user to System Settings, which takes focus.
+/// Without this the instructions would vanish at the moment they are being
+/// followed, and the user would return to an empty screen.
+#[tauri::command]
+pub fn set_dismiss_on_blur(state: State<'_, AppState>, value: bool) {
+    state.set_dismiss_on_blur(value);
+}
+
 // -- storage ----------------------------------------------------------------
 
 #[tauri::command]

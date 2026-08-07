@@ -19,6 +19,16 @@ export async function hidePopup(): Promise<void> {
   await invoke("hide_popup");
 }
 
+/**
+ * Turn dismiss-on-blur off while a screen must survive losing focus.
+ *
+ * The permission gate needs this: it opens System Settings, which takes focus,
+ * and auto-hiding would remove the instructions mid-task.
+ */
+export async function setDismissOnBlur(value: boolean): Promise<void> {
+  await invoke("set_dismiss_on_blur", { value });
+}
+
 export async function checkAccessibility(): Promise<boolean> {
   return await invoke<boolean>("check_accessibility");
 }

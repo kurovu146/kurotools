@@ -39,6 +39,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::lookup,
             commands::hide_popup,
+            commands::set_dismiss_on_blur,
             commands::save_word,
             commands::unsave_word,
             commands::is_saved,
@@ -84,8 +85,18 @@ pub fn run() {
             // than close: closing the last window would exit the app on some
             // platforms, and rebuilding the webview would put a delay in front
             // of the next lookup.
+            //
+            // Suppressed while the permission gate is up — that screen sends
+            // the user to System Settings, which takes focus, and hiding then
+            // would remove the instructions mid-task.
             if let tauri::WindowEvent::Focused(false) = event {
-                let _ = window.hide();
+                let dismiss = window
+                    .try_state::<state::AppState>()
+                    .map(|s| s.dismiss_on_blur())
+                    .unwrap_or(true);
+                if dismiss {
+                    let _ = window.hide();
+                }
             }
         })
         .run(tauri::generate_context!())

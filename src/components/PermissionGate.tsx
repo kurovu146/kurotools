@@ -3,6 +3,7 @@ import {
   checkAccessibility,
   openAccessibilitySettings,
   requestAccessibility,
+  setDismissOnBlur,
 } from "../capture";
 
 /** How often to re-check while the gate is showing. */
@@ -29,6 +30,18 @@ export function PermissionGate({
   onSkip: () => void;
 }) {
   const [asked, setAsked] = useState(false);
+
+  // Clicking "Grant access" opens System Settings, which takes focus away. The
+  // window's blur handler would otherwise hide this screen the instant the
+  // user acts on it, leaving them staring at System Settings with no idea what
+  // they were meant to do. Restored on unmount so the popup dismisses normally
+  // again.
+  useEffect(() => {
+    void setDismissOnBlur(false);
+    return () => {
+      void setDismissOnBlur(true);
+    };
+  }, []);
 
   useEffect(() => {
     // Polling rather than a one-shot check: the user grants permission in
