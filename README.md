@@ -58,6 +58,26 @@ grant is detected without restarting the app.
 **Declining is fine.** Tra still works — copy the text first, then press the
 hotkey. That path needs no permission at all.
 
+## macOS: native fullscreen apps
+
+**Known limitation.** The popup does not appear over an app in *native*
+fullscreen — the green-button kind, which macOS gives its own Space. The window
+is created, positioned and shown correctly; it just stays on its own Space.
+
+`NSWindowCollectionBehaviorCanJoinAllSpaces | FullScreenAuxiliary` is set (reads
+back as `257`) and the window level is raised to 101, both verified still in
+force after the window is shown. That is not enough on its own, and the cause
+is not yet understood.
+
+If you live in a fullscreen terminal, the fix is one line of Ghostty config:
+
+```
+macos-non-native-fullscreen = true
+```
+
+Ghostty then fills the screen without claiming a Space, and the popup appears
+over it normally. `zoom` in tmux, or a maximised window, work fine too.
+
 ## Inside tmux, copy first
 
 Select-then-hotkey **does not work inside a terminal multiplexer**, and cannot
