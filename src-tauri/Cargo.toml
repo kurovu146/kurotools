@@ -24,6 +24,7 @@ serde_json.workspace = true
 tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-single-instance = "2.4.3"
 tauri-plugin-autostart = "2.5.1"
+window-vibrancy = "0.8.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2", version = "2.0.1" }

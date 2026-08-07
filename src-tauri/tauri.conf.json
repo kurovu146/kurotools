@@ -13,15 +13,16 @@
     "windows": [
       {
         "title": "Tra",
-        "width": 420,
-        "height": 520,
+        "width": 400,
+        "height": 460,
         "resizable": true,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": false,
-        "center": true
+        "center": true,
+        "shadow": true
       }
     ],
     "security": {

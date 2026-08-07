@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { hidePopup, onCapture } from "./capture";
 import { LookupView } from "./components/LookupView";
-import { Muted } from "./components/Pane";
+import { Muted } from "./components/Section";
 import { PermissionGate } from "./components/PermissionGate";
 import { lookup, type Lookup } from "./lookup";
 
@@ -62,7 +62,7 @@ export default function App() {
 
   if (state.kind === "needsPermission") {
     return (
-      <main className="h-full bg-white text-neutral-900 dark:bg-neutral-900 dark:text-neutral-50">
+      <main className="h-full bg-white/70 text-neutral-900 dark:bg-neutral-900/60 dark:text-neutral-50">
         <PermissionGate
           onGranted={() => setState({ kind: "idle" })}
           onSkip={() => setState({ kind: "idle" })}
@@ -72,9 +72,11 @@ export default function App() {
   }
 
   return (
-    <main className="flex h-full flex-col bg-white text-neutral-900 dark:bg-neutral-900 dark:text-neutral-50">
+    // Only a faint tint: the blur behind it is the native vibrancy layer, and
+    // an opaque background here would hide it entirely.
+    <main className="flex h-full flex-col bg-white/45 text-neutral-900 dark:bg-neutral-900/35 dark:text-neutral-50">
       <form
-        className="shrink-0 border-b border-neutral-200 p-2 dark:border-neutral-700"
+        className="shrink-0 px-3 pt-3"
         onSubmit={(e) => {
           e.preventDefault();
           void run(query);
@@ -86,18 +88,18 @@ export default function App() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Look up a word…"
           aria-label="Text to look up"
-          className="w-full rounded-md bg-neutral-100 px-3 py-2 text-sm outline-none placeholder:text-neutral-400 focus:ring-2 focus:ring-sky-500 dark:bg-neutral-800 dark:placeholder:text-neutral-500"
+          className="w-full rounded-lg bg-black/5 px-3 py-1.5 font-sans text-[13px] outline-none placeholder:text-neutral-500 focus:ring-2 focus:ring-sky-500/60 dark:bg-white/10 dark:placeholder:text-neutral-400"
         />
       </form>
 
       <div className="min-h-0 flex-1">
         {state.kind === "idle" && (
-          <div className="p-3">
+          <div className="p-4">
             <Muted>Select text anywhere, then press the hotkey.</Muted>
           </div>
         )}
         {state.kind === "loading" && (
-          <div className="p-3">
+          <div className="p-4">
             <Muted>Looking up “{state.text}”…</Muted>
           </div>
         )}

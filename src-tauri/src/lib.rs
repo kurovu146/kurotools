@@ -85,6 +85,30 @@ pub fn run() {
                 let _ = window.hide();
             }
 
+            // Translucent background, matching the system Look Up panel. Applied
+            // before the panel conversion so it attaches to the plain NSWindow.
+            // Best-effort: an opaque popup is a cosmetic loss, not a reason to
+            // fail startup.
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window(popup::MAIN_WINDOW) {
+                use window_vibrancy::{
+                    apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+                };
+                if let Err(e) = apply_vibrancy(
+                    &window,
+                    // HudWindow is the material the system uses for transient
+                    // overlay panels, which is exactly what this is.
+                    NSVisualEffectMaterial::HudWindow,
+                    // Active regardless of whether this app is frontmost: the
+                    // popup is shown *without* activating, so "follows window
+                    // active state" would render it permanently inactive.
+                    Some(NSVisualEffectState::Active),
+                    Some(12.0),
+                ) {
+                    eprintln!("tra: vibrancy unavailable, using a solid background ({e})");
+                }
+            }
+
             // Convert the window to a non-activating panel. Must come after the
             // window exists, and must be on the main thread — setup is both.
             // This is what lets the popup appear over a fullscreen app without
