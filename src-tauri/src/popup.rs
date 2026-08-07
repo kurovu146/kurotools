@@ -81,44 +81,71 @@ fn capture_now() -> CaptureEvent {
 /// the whole mask rather than adding to it, so setting only the new flag would
 /// undo the call above.
 ///
-/// **Must be dispatched to the main thread.** AppKit is main-thread-only, and
-/// `show` runs on a blocking worker (see [`show_with_selection`]). Calling
-/// `setCollectionBehavior` directly from there crashed the app with
+/// # Call this once, at startup, from the main thread
+///
+/// Two reasons it cannot live in [`show`]:
+///
+/// - AppKit is main-thread-only and `show` runs on a blocking worker, so it
+///   would need `run_on_main_thread` — which is **asynchronous**. The closure
+///   would be queued and `window.show()` would run first, placing the window
+///   before the behaviour applied. Calling it from `setup` needs no dispatch
+///   at all, because `setup` already runs on the main thread.
+/// - Tauri's `set_visible_on_all_workspaces` is itself a
+///   `setCollectionBehavior` call carrying only `CanJoinAllSpaces`, so the two
+///   overwrite each other. This function sets both flags, which makes that
+///   call redundant — `show` no longer makes it.
+///
+/// Calling `setCollectionBehavior` off the main thread crashed the app with
 /// `EXC_BREAKPOINT` inside `-[NSWindow setCollectionBehavior:]`. Tauri's own
-/// window methods hide this by dispatching internally; a raw objc2 call does
-/// not, which is exactly the invariant `MainThreadMarker` exists to enforce
-/// and which casting a raw pointer bypasses.
+/// window methods hide that by dispatching internally; a raw objc2 call does
+/// not, which is the invariant `MainThreadMarker` enforces and that casting a
+/// raw pointer bypasses.
 #[cfg(target_os = "macos")]
-fn allow_over_fullscreen(window: &WebviewWindow) {
-    let window = window.clone();
-    let dispatched = window.clone().run_on_main_thread(move || {
-        use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+pub fn configure_space_behavior(window: &WebviewWindow) {
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
 
-        let ptr = match window.ns_window() {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("tra: no NSWindow handle: {e}");
-                return;
-            }
-        };
-        if ptr.is_null() {
+    let ptr = match window.ns_window() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("tra: no NSWindow handle: {e}");
             return;
         }
+    };
+    if ptr.is_null() {
+        return;
+    }
 
-        // SAFETY: Tauri hands back the live NSWindow backing this webview
-        // window; the reference is used only for the duration of this call,
-        // and this closure runs on the main thread, as AppKit requires.
-        unsafe {
-            let ns_window = &*(ptr as *const NSWindow);
-            ns_window.setCollectionBehavior(
-                NSWindowCollectionBehavior::CanJoinAllSpaces
-                    | NSWindowCollectionBehavior::FullScreenAuxiliary,
-            );
-        }
-    });
+    // SAFETY: Tauri hands back the live NSWindow backing this webview window;
+    // the reference is used only for the duration of this call, and the caller
+    // guarantees the main thread, as AppKit requires.
+    unsafe {
+        let ns_window = &*(ptr as *const NSWindow);
+        let wanted = NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::FullScreenAuxiliary;
+        // CanJoinAllSpaces covers ordinary desktop Spaces. FullScreenAuxiliary
+        // is what allows the window into another app's fullscreen Space — the
+        // case that matters for a fullscreen terminal. Set together because
+        // setCollectionBehavior replaces the mask rather than adding to it.
+        ns_window.setCollectionBehavior(wanted);
 
-    if let Err(e) = dispatched {
-        eprintln!("tra: could not reach the main thread to set collection behavior: {e}");
+        // Raise above the fullscreen app's window. `alwaysOnTop` leaves this at
+        // NSFloatingWindowLevel (5), which is not enough to sit over another
+        // app's fullscreen window — the collection-behaviour flags let the
+        // window *join* that Space, but not necessarily appear in front once
+        // there. 101 is NSPopUpMenuWindowLevel: above the menu bar and normal
+        // floating panels, below the screen saver, which is where launcher-style
+        // utilities sit.
+        const POPUP_MENU_LEVEL: isize = 101;
+        ns_window.setLevel(POPUP_MENU_LEVEL);
+    }
+}
+
+/// Non-macOS: Tauri's own API is enough, and there is no fullscreen-Space
+/// concept to work around.
+#[cfg(not(target_os = "macos"))]
+pub fn configure_space_behavior(window: &WebviewWindow) {
+    if let Err(e) = window.set_visible_on_all_workspaces(true) {
+        eprintln!("tra: could not make the window follow workspaces: {e}");
     }
 }
 
@@ -138,16 +165,10 @@ pub fn show(app: &AppHandle) {
         return;
     };
 
-    // Follow the user to whichever Space they are on. Without this the window
-    // stays bound to the desktop it was created on and opens correctly —
-    // visible, focused, positioned — on a Space nobody is looking at, which is
-    // indistinguishable from the hotkey doing nothing. Re-applied on every
-    // show because the active Space changes between lookups.
-    if let Err(e) = window.set_visible_on_all_workspaces(true) {
-        eprintln!("tra: could not make the window follow Spaces: {e}");
-    }
-    #[cfg(target_os = "macos")]
-    allow_over_fullscreen(&window);
+    // Nothing here touches the window's Space behaviour: that is set once at
+    // startup by configure_space_behavior. Setting it per-show meant an async
+    // main-thread hop that landed after window.show(), and Tauri's
+    // set_visible_on_all_workspaces overwriting the fullscreen flag each time.
 
     // Best-effort: failing to position is not a reason to withhold the window.
     // It would simply open wherever it last was.

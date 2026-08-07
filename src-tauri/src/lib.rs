@@ -74,6 +74,11 @@ pub fn run() {
             // Hidden until summoned. The window exists from launch so the
             // first hotkey press has no webview startup cost in front of it.
             if let Some(window) = app.get_webview_window(popup::MAIN_WINDOW) {
+                // setup runs on the main thread, which is the only place AppKit
+                // may be touched — and doing it once here means the behaviour
+                // is already in force before the first show, rather than racing
+                // it. See configure_space_behavior for why per-show failed.
+                popup::configure_space_behavior(&window);
                 let _ = window.hide();
             }
 
@@ -89,6 +94,12 @@ pub fn run() {
             // the user to System Settings, which takes focus, and hiding then
             // would remove the instructions mid-task.
             if let tauri::WindowEvent::Focused(false) = event {
+                // Escape hatch for diagnosis: dismiss-on-blur makes it
+                // impossible to observe the window with an external tool,
+                // because the tool taking focus is itself what hides it.
+                if std::env::var_os("TRA_NO_BLUR_HIDE").is_some() {
+                    return;
+                }
                 let dismiss = window
                     .try_state::<state::AppState>()
                     .map(|s| s.dismiss_on_blur())
