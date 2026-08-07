@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+/* The popup follows the OS appearance rather than picking a side. It appears
+   on top of whatever the user is already reading, so a light panel over a dark
+   editor at night is a flashbang. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  /* Vietnamese diacritics sit above and below the baseline; the default
+     line-height clips them at small sizes. */
+  line-height: 1.55;
+}
