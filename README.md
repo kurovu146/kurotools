@@ -60,10 +60,8 @@ hotkey. That path needs no permission at all.
 
 ## macOS: native fullscreen apps
 
-Works. The popup appears over apps in *native* fullscreen — the green-button
-kind that macOS gives its own Space — verified against a fullscreen Ghostty.
-
-Two things are required together, and neither is enough alone:
+Appearing over an app in *native* fullscreen — the green-button kind that macOS
+gives its own Space — needs two things together, and neither is enough alone:
 
 - `NSWindowCollectionBehaviorCanJoinAllSpaces | FullScreenAuxiliary` (reads back
   as `257`), which lets the window *join* another app's fullscreen Space
