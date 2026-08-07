@@ -151,19 +151,25 @@ pub fn configure_space_behavior(window: &WebviewWindow) {
     }
 }
 
-/// Activate the application, then order the window front.
+/// Show the window on macOS: activate first, then order front.
 ///
-/// This is the other half of `MoveToActiveSpace`: that flag moves the window to
-/// the current Space **when the application is activated**, so without an
-/// explicit activation it never fires and the window stays where it was.
-/// Tauri's `set_focus` alone does not activate over another app's fullscreen
-/// Space — verified by the popup remaining invisible with the flag correctly
-/// set.
+/// **The order is the whole point, and reversing it is user-visible.**
 ///
-/// Mirrors what a known-working launcher on this machine does:
-/// `NSApplication.shared.activate(ignoringOtherApps: true)` followed by
-/// `makeKeyAndOrderFront(nil)`.
+/// `MoveToActiveSpace` relocates the window to the current Space when the
+/// application is *activated*. So activation must come first, while the window
+/// is still un-ordered; then ordering it front puts it on the Space the user is
+/// already looking at.
 ///
+/// Doing it the other way round — Tauri's `show()`/`set_focus()` first, then
+/// activating — orders the window in on whatever Space it was last on, and the
+/// activation then drags the user across to that Space. The popup does appear,
+/// but the user has been yanked away from the window they were reading, which
+/// is worse than the popup not appearing at all.
+///
+/// This is why `show` does not call Tauri's `show()`/`set_focus()` on macOS:
+/// `makeKeyAndOrderFront` here does both.
+///
+/// Mirrors the launcher at github.com/kurovu146/look, which does exactly this.
 /// Dispatched to the main thread, as all AppKit calls must be.
 #[cfg(target_os = "macos")]
 fn activate_and_order_front(window: &WebviewWindow) {
@@ -223,15 +229,20 @@ pub fn show(app: &AppHandle) {
     if let Err(e) = position_at_cursor(app, &window) {
         eprintln!("tra: could not position the window: {e}");
     }
-    if let Err(e) = window.show() {
-        eprintln!("tra: could not show the window: {e}");
-    }
-    if let Err(e) = window.set_focus() {
-        eprintln!("tra: could not focus the window: {e}");
+    // On macOS the window is shown by activate_and_order_front below, not here.
+    // Ordering it in first would place it on the Space it is currently on, and
+    // the activation that follows would then *switch the user to that Space*
+    // instead of bringing the window to them.
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Err(e) = window.show() {
+            eprintln!("tra: could not show the window: {e}");
+        }
+        if let Err(e) = window.set_focus() {
+            eprintln!("tra: could not focus the window: {e}");
+        }
     }
 
-    // Last: activate, which is what triggers MoveToActiveSpace to pull the
-    // window onto whatever Space the user is actually on.
     #[cfg(target_os = "macos")]
     activate_and_order_front(&window);
 }
