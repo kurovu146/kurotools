@@ -5,3 +5,6 @@
 //! v2 — is a new file here rather than branching scattered through the app.
 
 pub mod gtx;
+pub mod http;
+
+pub use http::GtxProvider;
