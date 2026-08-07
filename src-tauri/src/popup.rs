@@ -5,7 +5,6 @@
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
-use tauri_plugin_positioner::{Position, WindowExt};
 
 pub const MAIN_WINDOW: &str = "main";
 
@@ -69,17 +68,69 @@ fn capture_now() -> CaptureEvent {
     }
 }
 
-/// Show, focus, and position the popup at the cursor.
+/// Gap between the pointer and the popup's corner, in physical pixels.
+/// Enough that the window does not open underneath the cursor.
+const CURSOR_GAP: i32 = 12;
+
+/// Show, focus, and position the popup near the cursor.
 pub fn show(app: &AppHandle) {
     let Some(window) = main_window(app) else {
+        // Silent failure here presents as "the hotkey does nothing", with no
+        // error anywhere, so it is worth a line on stderr.
+        eprintln!(
+            "tra: no window labelled {MAIN_WINDOW:?}; labels present: {:?}",
+            app.webview_windows().keys().collect::<Vec<_>>()
+        );
         return;
     };
 
-    // Best-effort: a failure to position is not a reason to withhold the
-    // window. It would simply appear wherever it last was.
-    let _ = window.move_window(Position::Center);
-    let _ = window.show();
-    let _ = window.set_focus();
+    // Best-effort: failing to position is not a reason to withhold the window.
+    // It would simply open wherever it last was.
+    if let Err(e) = position_at_cursor(app, &window) {
+        eprintln!("tra: could not position the window: {e}");
+    }
+    if let Err(e) = window.show() {
+        eprintln!("tra: could not show the window: {e}");
+    }
+    if let Err(e) = window.set_focus() {
+        eprintln!("tra: could not focus the window: {e}");
+    }
+}
+
+/// Put the popup beside the pointer, fully inside the monitor the pointer is on.
+///
+/// Centring on the *primary* monitor is what the first version did, and on a
+/// multi-monitor desk that means the popup reliably opens on a screen the user
+/// is not looking at — it appears not to work at all. The pointer is the best
+/// available proxy for "where the user is", since the text they just selected
+/// is under it.
+fn position_at_cursor(app: &AppHandle, window: &WebviewWindow) -> tauri::Result<()> {
+    let cursor = app.cursor_position()?;
+
+    // The monitor under the pointer, not the window's current one — the window
+    // has not moved yet, so its own monitor is still the previous location's.
+    let monitor = match app.monitor_from_point(cursor.x, cursor.y)? {
+        Some(m) => m,
+        None => match app.primary_monitor()? {
+            Some(m) => m,
+            None => return Ok(()),
+        },
+    };
+
+    let area = monitor.size();
+    let origin = monitor.position();
+    let size = window.outer_size()?;
+
+    // Clamp so the whole window stays on that monitor. Without this, selecting
+    // text near the right or bottom edge opens the popup half off-screen —
+    // and `max(origin)` after `min` also covers a monitor smaller than the
+    // window, where the two bounds cross.
+    let max_x = origin.x + area.width as i32 - size.width as i32;
+    let max_y = origin.y + area.height as i32 - size.height as i32;
+    let x = (cursor.x as i32 + CURSOR_GAP).min(max_x).max(origin.x);
+    let y = (cursor.y as i32 + CURSOR_GAP).min(max_y).max(origin.y);
+
+    window.set_position(tauri::PhysicalPosition::new(x, y))
 }
 
 /// Hide the popup. Never closes it — recreating a webview on every lookup

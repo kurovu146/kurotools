@@ -23,5 +23,4 @@ serde.workspace = true
 serde_json.workspace = true
 tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-single-instance = "2.4.3"
-tauri-plugin-positioner = "2.3.3"
 tauri-plugin-autostart = "2.5.1"
