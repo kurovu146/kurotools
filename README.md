@@ -60,19 +60,53 @@ hotkey. That path needs no permission at all.
 
 ## macOS: native fullscreen apps
 
-Appearing over an app in *native* fullscreen — the green-button kind that macOS
-gives its own Space — needs two things together, and neither is enough alone:
+**Known limitation.** The popup does not appear over an app in *native*
+fullscreen — the green-button kind that macOS gives its own Space. Everywhere
+else it works, including ordinary Spaces and maximised windows.
 
-- `NSWindowCollectionBehaviorCanJoinAllSpaces | FullScreenAuxiliary` (reads back
-  as `257`), which lets the window *join* another app's fullscreen Space
-- window level raised from `NSFloatingWindowLevel` (5) to **101**, which puts it
-  *in front* once there
+If you work in a fullscreen terminal, one line of Ghostty config fixes it:
 
-Both are applied once at startup rather than per-show. Applying them in `show`
-fails silently two ways: `run_on_main_thread` is asynchronous, so the change
-lands after the window is already placed, and Tauri's
-`set_visible_on_all_workspaces` is itself a `setCollectionBehavior` call
-carrying only `CanJoinAllSpaces`, which wipes the fullscreen flag every time.
+```
+macos-non-native-fullscreen = true
+```
+
+Ghostty then fills the screen without claiming its own Space, and the popup
+appears over it normally. tmux `zoom` and a maximised window are unaffected
+either way.
+
+<details>
+<summary>What was tried</summary>
+
+Each of these was verified as actually applied, and none was sufficient:
+
+| Attempt | Outcome |
+|---|---|
+| `CanJoinAllSpaces \| FullScreenAuxiliary` (reads back `257`) | no effect |
+| Window level raised from 5 to 101 | no effect |
+| Applied once at startup rather than per-show | no effect |
+| `orderFrontRegardless()` | no effect |
+| `ActivationPolicy::Regular` instead of `Accessory` | no effect |
+
+Only the collection-behaviour flags were kept, since they are the documented
+mechanism for ordinary Spaces; the rest were reverted as unproven.
+
+The untried difference from launcher utilities that manage this (Raycast,
+Alfred) is that they use an `NSPanel` with `.nonactivatingPanel`, while Tauri
+creates an `NSWindow`. That cannot be changed at runtime — it needs Tauri's
+window construction patched.
+
+Applying the flags inside `show` fails silently two ways, worth knowing if this
+is revisited: `run_on_main_thread` is asynchronous, so the change lands after
+the window is placed, and `set_visible_on_all_workspaces` is itself a
+`setCollectionBehavior` call carrying only `CanJoinAllSpaces`, which wipes the
+fullscreen flag every time.
+
+</details>
+
+For single English words on macOS there is also **`⌃⌘D`** — the built-in Look
+Up panel, which includes a Vietnamese–English dictionary and works over
+fullscreen, because it is drawn by the app that owns the text rather than being
+a separate window.
 
 ## Inside tmux, copy first
 

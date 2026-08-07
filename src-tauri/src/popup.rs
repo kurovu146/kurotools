@@ -127,16 +127,6 @@ pub fn configure_space_behavior(window: &WebviewWindow) {
         // case that matters for a fullscreen terminal. Set together because
         // setCollectionBehavior replaces the mask rather than adding to it.
         ns_window.setCollectionBehavior(wanted);
-
-        // Raise above the fullscreen app's window. `alwaysOnTop` leaves this at
-        // NSFloatingWindowLevel (5), which is not enough to sit over another
-        // app's fullscreen window — the collection-behaviour flags let the
-        // window *join* that Space, but not necessarily appear in front once
-        // there. 101 is NSPopUpMenuWindowLevel: above the menu bar and normal
-        // floating panels, below the screen saver, which is where launcher-style
-        // utilities sit.
-        const POPUP_MENU_LEVEL: isize = 101;
-        ns_window.setLevel(POPUP_MENU_LEVEL);
     }
 }
 
