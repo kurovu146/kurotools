@@ -120,13 +120,25 @@ pub fn configure_space_behavior(window: &WebviewWindow) {
     // guarantees the main thread, as AppKit requires.
     unsafe {
         let ns_window = &*(ptr as *const NSWindow);
-        let wanted = NSWindowCollectionBehavior::CanJoinAllSpaces
+
+        // MoveToActiveSpace, *not* CanJoinAllSpaces.
+        //
+        // CanJoinAllSpaces is passive — "this window may appear on any Space" —
+        // and in practice it never pulls the window onto another application's
+        // fullscreen Space. MoveToActiveSpace is active: the window is moved to
+        // whatever Space is current when this application is activated. That
+        // activation-driven behaviour is what makes it work where the other
+        // flag silently does nothing.
+        //
+        // FullScreenAuxiliary is still required alongside it, to permit a
+        // fullscreen Space as a destination at all.
+        //
+        // Preserved rather than replaced: setCollectionBehavior overwrites the
+        // whole mask, so read-modify-write keeps whatever Tauri already set.
+        let behavior = ns_window.collectionBehavior()
+            | NSWindowCollectionBehavior::MoveToActiveSpace
             | NSWindowCollectionBehavior::FullScreenAuxiliary;
-        // CanJoinAllSpaces covers ordinary desktop Spaces. FullScreenAuxiliary
-        // is what allows the window into another app's fullscreen Space — the
-        // case that matters for a fullscreen terminal. Set together because
-        // setCollectionBehavior replaces the mask rather than adding to it.
-        ns_window.setCollectionBehavior(wanted);
+        ns_window.setCollectionBehavior(behavior);
     }
 }
 
@@ -136,6 +148,52 @@ pub fn configure_space_behavior(window: &WebviewWindow) {
 pub fn configure_space_behavior(window: &WebviewWindow) {
     if let Err(e) = window.set_visible_on_all_workspaces(true) {
         eprintln!("tra: could not make the window follow workspaces: {e}");
+    }
+}
+
+/// Activate the application, then order the window front.
+///
+/// This is the other half of `MoveToActiveSpace`: that flag moves the window to
+/// the current Space **when the application is activated**, so without an
+/// explicit activation it never fires and the window stays where it was.
+/// Tauri's `set_focus` alone does not activate over another app's fullscreen
+/// Space — verified by the popup remaining invisible with the flag correctly
+/// set.
+///
+/// Mirrors what a known-working launcher on this machine does:
+/// `NSApplication.shared.activate(ignoringOtherApps: true)` followed by
+/// `makeKeyAndOrderFront(nil)`.
+///
+/// Dispatched to the main thread, as all AppKit calls must be.
+#[cfg(target_os = "macos")]
+fn activate_and_order_front(window: &WebviewWindow) {
+    let target = window.clone();
+    let dispatched = window.clone().run_on_main_thread(move || {
+        use objc2_app_kit::{NSApplication, NSWindow};
+        use objc2_foundation::MainThreadMarker;
+
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let Ok(ptr) = target.ns_window() else { return };
+        if ptr.is_null() {
+            return;
+        }
+
+        // SAFETY: the live NSWindow behind this webview window, used only for
+        // these calls, on the main thread as AppKit requires.
+        unsafe {
+            let app = NSApplication::sharedApplication(mtm);
+            #[allow(deprecated)]
+            app.activateIgnoringOtherApps(true);
+
+            let ns_window = &*(ptr as *const NSWindow);
+            ns_window.makeKeyAndOrderFront(None);
+        }
+    });
+
+    if let Err(e) = dispatched {
+        eprintln!("tra: could not activate and order the window front: {e}");
     }
 }
 
@@ -171,6 +229,11 @@ pub fn show(app: &AppHandle) {
     if let Err(e) = window.set_focus() {
         eprintln!("tra: could not focus the window: {e}");
     }
+
+    // Last: activate, which is what triggers MoveToActiveSpace to pull the
+    // window onto whatever Space the user is actually on.
+    #[cfg(target_os = "macos")]
+    activate_and_order_front(&window);
 }
 
 /// Put the popup beside the pointer, fully inside the monitor the pointer is on.
