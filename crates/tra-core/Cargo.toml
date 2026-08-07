@@ -1,0 +1,26 @@
+# IMPORTANT: this crate must never depend on `tauri`. It is the framework-free
+# core (providers, parsing, model, storage, capture) so the logic stays
+# unit-testable without a GUI harness, and a framework swap costs only the shell.
+# tests/no_tauri_dep.rs enforces this.
+
+[package]
+name = "tra-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror = "2.0.19"
+arboard = "3.6.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.25.0"
+core-foundation = "0.10.1"
+accessibility-sys = "0.2.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = [
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_Foundation",
+] }
