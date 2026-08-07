@@ -6,6 +6,7 @@
 mod commands;
 mod hotkey;
 mod popup;
+mod state;
 mod tray;
 
 use tauri::Manager;
@@ -38,11 +39,29 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::lookup,
             commands::hide_popup,
+            commands::save_word,
+            commands::unsave_word,
+            commands::is_saved,
+            commands::saved_words,
+            commands::recent_lookups,
+            commands::speak,
+            commands::tts_available,
             commands::check_accessibility,
             commands::request_accessibility,
             commands::open_accessibility_settings,
         ])
         .setup(|app| {
+            // A database that will not open must not stop the app starting.
+            // Lookups are the product; history and saved words are extras, and
+            // losing them is far better than refusing to launch. The commands
+            // that need state use try_state and degrade when it is absent.
+            match state::AppState::new(app.handle()) {
+                Ok(s) => {
+                    app.manage(s);
+                }
+                Err(e) => eprintln!("tra: storage unavailable, continuing without it ({e})"),
+            }
+
             // A menu-bar utility, not an app you switch to: no Dock icon, and
             // showing the popup must not deactivate the app the user is
             // reading. Accessory is what buys both.

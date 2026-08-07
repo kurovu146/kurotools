@@ -2,12 +2,15 @@
 //! lines that hand off to `tra-core`, so the logic stays testable without a
 //! GUI and the shell stays swappable.
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager, State};
 use tra_core::capture;
 use tra_core::model::Lookup;
 use tra_core::provider::GtxProvider;
+use tra_core::store::{HistoryEntry, SavedWord};
+use tra_core::tts;
 
 use crate::popup;
+use crate::state::AppState;
 
 /// Look `text` up and return the three-pane result.
 ///
@@ -18,13 +21,23 @@ use crate::popup;
 /// Infallible by contract — `GtxProvider::lookup` turns every failure into an
 /// "unavailable" result, so the frontend never needs a rejection path.
 #[tauri::command]
-pub async fn lookup(text: String) -> Lookup {
-    tauri::async_runtime::spawn_blocking(move || GtxProvider::new().lookup(&text))
+pub async fn lookup(app: AppHandle, text: String) -> Lookup {
+    let result = tauri::async_runtime::spawn_blocking(move || GtxProvider::new().lookup(&text))
         .await
         // The only way to land here is a panic inside the provider. Returning
         // the same "unavailable" shape keeps the frontend's single code path
         // intact rather than surfacing a second kind of failure.
-        .unwrap_or_else(|_| Lookup::unavailable(String::new(), false))
+        .unwrap_or_else(|_| Lookup::unavailable(String::new(), false));
+
+    // History is a convenience, not part of the answer. A failing write must
+    // never cost the user the lookup they are waiting on.
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(store) = state.store.lock() {
+            let _ = store.record_lookup(&result);
+        }
+    }
+
+    result
 }
 
 /// Dismiss the popup. Called on Esc.
@@ -32,6 +45,55 @@ pub async fn lookup(text: String) -> Lookup {
 pub fn hide_popup(app: AppHandle) {
     popup::hide(&app);
 }
+
+// -- storage ----------------------------------------------------------------
+
+#[tauri::command]
+pub fn save_word(state: State<'_, AppState>, word: String) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.save_word(&word).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn unsave_word(state: State<'_, AppState>, word: String) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.unsave_word(&word).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn is_saved(state: State<'_, AppState>, word: String) -> Result<bool, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.is_saved(&word).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn saved_words(state: State<'_, AppState>) -> Result<Vec<SavedWord>, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.saved_words().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn recent_lookups(
+    state: State<'_, AppState>,
+    limit: usize,
+) -> Result<Vec<HistoryEntry>, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.recent(limit).map_err(|e| e.to_string())
+}
+
+// -- pronunciation ----------------------------------------------------------
+
+#[tauri::command]
+pub fn speak(text: String) -> Result<(), String> {
+    tts::speak(&text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn tts_available() -> bool {
+    tts::is_available()
+}
+
+// -- permissions ------------------------------------------------------------
 
 /// Whether the app may synthesize the copy keystroke. Always true off macOS.
 ///

@@ -1,5 +1,6 @@
 import type { Lookup } from "../lookup";
 import { Muted, Pane } from "./Pane";
+import { SourceActions } from "./SourceActions";
 
 const MAX_CHARS = 5000;
 
@@ -17,7 +18,7 @@ const MAX_CHARS = 5000;
 export function LookupView({ result }: { result: Lookup }) {
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_auto_1fr] divide-y divide-neutral-200 dark:divide-neutral-700">
-      <Pane label="source">
+      <Pane label="source" action={<SourceActions text={result.source} />}>
         <p className="break-words whitespace-pre-wrap">{result.source}</p>
         {result.source_truncated && (
           <Muted>
