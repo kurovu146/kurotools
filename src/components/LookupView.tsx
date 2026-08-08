@@ -32,8 +32,12 @@ export function LookupView({ result }: { result: Lookup }) {
         <p className="pt-1 text-[12px] text-fg-dim italic">{partsOfSpeech}</p>
       )}
 
+      {/* data-selectable: the senses and the translation are the parts worth
+          copying out, so they keep the pointer instead of dragging the window.
+          The headword row above deliberately does not — it is the panel's
+          handle, and its text is already selected in the app it came from. */}
       {result.definitions.length > 0 && (
-        <ol className="pt-1.5">
+        <ol className="pt-1.5" data-selectable>
           {result.definitions.map((d, i) => (
             <Sense key={i} index={i + 1}>
               {d.domain && <span className="text-fg-dim italic">{d.domain} </span>}
@@ -54,7 +58,10 @@ export function LookupView({ result }: { result: Lookup }) {
 
       <Label>Vietnamese</Label>
       {result.translation ? (
-        <p className="text-[14px] leading-snug break-words whitespace-pre-wrap">
+        <p
+          data-selectable
+          className="text-[14px] leading-snug break-words whitespace-pre-wrap"
+        >
           {result.translation}
         </p>
       ) : (

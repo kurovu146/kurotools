@@ -1,5 +1,5 @@
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
 
 /**
  * Apply the OS appearance as a `dark` class on `<html>`.
@@ -26,6 +26,34 @@ export function useSystemTheme() {
       void unlisten.then((f) => f());
     };
   }, []);
+}
+
+/**
+ * Drag the whole window from wherever the pointer went down.
+ *
+ * The popup has no titlebar to grab — that is the point of it — so the panel
+ * itself has to be the handle. Two carve-outs:
+ *
+ * - Controls own their clicks, or the speak and save buttons would move the
+ *   window instead of firing.
+ * - Anything marked `data-selectable` stays selectable, so the definitions and
+ *   the translation can still be copied. Everything else — the headword row
+ *   and the panel's background — drags, which keeps the grab area large enough
+ *   to find without a visible handle.
+ *
+ * `startDragging` hands the gesture straight to the window server, so there is
+ * no drag threshold to wait for and no way to change our mind afterwards. That
+ * is why the exclusions are decided here, on mousedown, rather than by
+ * watching how far the pointer travels.
+ */
+export function startWindowDrag(event: ReactMouseEvent<HTMLElement>) {
+  if (event.button !== 0) return;
+
+  const target = event.target as HTMLElement;
+  if (target.closest("button, input, textarea, a, [data-selectable]")) return;
+
+  event.preventDefault();
+  void getCurrentWindow().startDragging();
 }
 
 /** Never grow past this, however long the translation is — scroll instead. */

@@ -4,7 +4,7 @@ import { LookupView } from "./components/LookupView";
 import { Muted } from "./components/primitives";
 import { PermissionGate } from "./components/PermissionGate";
 import { lookup, type Lookup } from "./lookup";
-import { useHeightFitsContent, useSystemTheme } from "./window";
+import { startWindowDrag, useHeightFitsContent, useSystemTheme } from "./window";
 
 type State =
   | { kind: "idle" }
@@ -78,7 +78,7 @@ export default function App() {
     // The scroll lives on <main> while the height is measured from the child:
     // measuring a scroll container reports the height it already has, so the
     // panel could grow but never shrink.
-    <main className="max-h-screen overflow-y-auto">
+    <main className="max-h-screen overflow-y-auto" onMouseDown={startWindowDrag}>
       <div ref={contentRef}>
         {state.kind === "needsPermission" && (
           <PermissionGate

@@ -91,6 +91,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The panel is its own drag handle (see startWindowDrag), so most of it must
+   not behave like text: without this a drag leaves a half-highlighted headword
+   behind as the window moves, and the I-beam suggests a selection that dragging
+   will not make. The parts that really are selectable opt back in, which also
+   makes the cursor an honest signal of what a drag will do. */
+body {
+  cursor: default;
+  user-select: none;
+}
+
+[data-selectable] {
+  cursor: text;
+  user-select: text;
+}
+
 /* Scrollbars are noise inside a small translucent panel. Hidden, not
    disabled — the wheel still scrolls a definition too long for the panel. */
 ::-webkit-scrollbar {
