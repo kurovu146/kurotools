@@ -58,6 +58,11 @@
   --color-fg-faint: var(--tra-fg-faint);
   --color-rule: var(--tra-rule);
   --color-hover: var(--tra-hover);
+  /* The picker overlay reuses the panel's own derived alpha rather than a
+     second hand-tuned one: composed over the scrim already painted on #root
+     the two land around 0.97 opaque, which hides the entry underneath over
+     any backdrop instead of only the one it was eyeballed against. */
+  --color-scrim: var(--tra-scrim);
 }
 
 /* The window is transparent so the native vibrancy layer shows through; the

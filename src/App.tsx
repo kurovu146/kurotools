@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { hidePopup, onCapture } from "./capture";
+import { LanguagePicker } from "./components/LanguagePicker";
 import { LookupView } from "./components/LookupView";
 import { Muted } from "./components/primitives";
 import { PermissionGate } from "./components/PermissionGate";
+import { AUTO, langConfig, setLangConfig, type LangConfig } from "./lang";
 import { lookup, type Lookup } from "./lookup";
 import { startWindowDrag, useHeightFitsContent, useSystemTheme } from "./window";
 
@@ -15,9 +17,19 @@ type State =
 export default function App() {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [query, setQuery] = useState("");
+  const [config, setConfig] = useState<LangConfig | null>(null);
+  const [picking, setPicking] = useState<"source" | "target" | null>(null);
+  /** The text the current result came from, so a language change can re-run it. */
+  const [lastText, setLastText] = useState("");
 
   useSystemTheme();
   const contentRef = useHeightFitsContent<HTMLDivElement>();
+
+  useEffect(() => {
+    // Only the pair label needs this, and it renders "Auto" until it arrives —
+    // a failed read must not stop the panel showing a lookup.
+    void langConfig().then(setConfig).catch(() => {});
+  }, []);
 
   const run = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -25,6 +37,7 @@ export default function App() {
       setState({ kind: "idle" });
       return;
     }
+    setLastText(trimmed);
 
     setState({ kind: "loading", text: trimmed });
     // `lookup` cannot reject — the Rust side turns every failure into an
@@ -54,8 +67,37 @@ export default function App() {
     };
   }, [run]);
 
+  /**
+   * Change one side of the pair and look the same text up again.
+   *
+   * Re-runs on the text already in hand rather than re-capturing: the
+   * selection that produced this result is long gone from the other app, and
+   * asking for it again would be a different lookup.
+   */
+  const pick = useCallback(
+    async (side: "source" | "target", code: string) => {
+      setPicking(null);
+      if (!config) return;
+
+      const next =
+        side === "source"
+          ? { ...config, source: code === AUTO ? null : code }
+          : { ...config, target: code };
+
+      // Render what the backend actually stored — it repairs colliding
+      // languages, so an optimistic local update can disagree with it.
+      const stored = await setLangConfig(next).catch(() => null);
+      if (!stored) return;
+      setConfig(stored);
+      if (lastText) void run(lastText);
+    },
+    [config, lastText, run],
+  );
+
   // Esc dismisses. Bound to the window rather than an element so it works
-  // whatever the user last clicked.
+  // whatever the user last clicked. The picker stops Escape reaching this
+  // while it is open, so the first press closes the picker and the second
+  // closes the popup.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") void hidePopup();
@@ -116,8 +158,34 @@ export default function App() {
             <Muted>Looking up “{state.text}”…</Muted>
           </div>
         )}
-        {state.kind === "done" && <LookupView result={state.result} />}
+        {state.kind === "done" && (
+          <LookupView
+            result={state.result}
+            // Italic marks a guess, so it tracks the *configuration*: a null
+            // source means the code on screen came from detection. The result
+            // alone cannot say — `source_lang` holds the configured language
+            // and the detected one alike.
+            sourceDetected={
+              config?.source === null && state.result.source_lang !== null
+            }
+            onPickSource={() => setPicking("source")}
+            onPickTarget={() => setPicking("target")}
+          />
+        )}
       </div>
+
+      {/* Outside the measured <div> on purpose: a list inside it would grow
+          the window every time the picker opened. */}
+      {picking && config && (
+        <LanguagePicker
+          selected={
+            picking === "source" ? (config.source ?? AUTO) : config.target
+          }
+          includeAuto={picking === "source"}
+          onPick={(code) => void pick(picking, code)}
+          onDismiss={() => setPicking(null)}
+        />
+      )}
     </main>
   );
 }

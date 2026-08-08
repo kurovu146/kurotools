@@ -1,12 +1,14 @@
+import { languageName } from "../lang";
 import type { Lookup } from "../lookup";
-import { Divider, Headword, Label, Muted, Sense } from "./primitives";
+import { Divider, Headword, Muted, Sense } from "./primitives";
 import { SourceActions } from "./SourceActions";
 
 const MAX_CHARS = 5000;
 
 /**
  * The result, laid out like the macOS Look Up panel: the looked-up text at the
- * top with its senses beneath, a hairline, then the Vietnamese translation.
+ * top with its senses beneath, a hairline, then the translation under the
+ * language pair that produced it.
  *
  * Two rules carried over from `tl`, both load-bearing:
  *
@@ -16,7 +18,18 @@ const MAX_CHARS = 5000;
  *   none. It is the block the tool exists for, so its absence must be stated
  *   rather than inferred from a gap.
  */
-export function LookupView({ result }: { result: Lookup }) {
+export function LookupView({
+  result,
+  sourceDetected,
+  onPickSource,
+  onPickTarget,
+}: {
+  result: Lookup;
+  /** The source language was guessed, not configured — see PairButton. */
+  sourceDetected: boolean;
+  onPickSource: () => void;
+  onPickTarget: () => void;
+}) {
   const partsOfSpeech = partOfSpeechLine(result.definitions);
 
   return (
@@ -56,7 +69,24 @@ export function LookupView({ result }: { result: Lookup }) {
 
       <Divider />
 
-      <Label>Vietnamese</Label>
+      {/* The pair replaces what used to be a static "Vietnamese" label: the
+          only chrome the picker needs already existed. `target_lang` is the
+          language actually used, not the configured one — the no-op retry can
+          land in the fallback, and the label has to follow it. */}
+      <h2 className="flex items-baseline gap-1 pb-1 font-sans text-[10px] font-medium tracking-[0.07em] text-fg-faint uppercase">
+        <PairButton
+          onClick={onPickSource}
+          hint="source"
+          uncertain={sourceDetected}
+          label={result.source_lang ? languageName(result.source_lang) : "Auto"}
+        />
+        <span aria-hidden>→</span>
+        <PairButton
+          onClick={onPickTarget}
+          hint="target"
+          label={languageName(result.target_lang)}
+        />
+      </h2>
       {result.translation ? (
         <p
           data-selectable
@@ -68,6 +98,40 @@ export function LookupView({ result }: { result: Lookup }) {
         <Muted>unavailable</Muted>
       )}
     </div>
+  );
+}
+
+/** One half of the language pair — a click target that does not look like a button. */
+function PairButton({
+  onClick,
+  label,
+  hint,
+  uncertain,
+}: {
+  onClick: () => void;
+  label: string;
+  /** Which side this is, spoken: the bare name does not say what changes. */
+  hint: "source" | "target";
+  /**
+   * Detected languages are a guess, so they are italicised the way every other
+   * lower-confidence string in this panel is — the domain tag, the truncation
+   * note, "unavailable".
+   */
+  uncertain?: boolean;
+}) {
+  const title = `Change the ${hint} language — currently ${label}`;
+
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className={`rounded px-0.5 uppercase hover:bg-hover hover:text-fg-dim ${
+        uncertain ? "italic" : ""
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
