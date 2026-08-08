@@ -31,7 +31,7 @@ export function useSystemTheme() {
 /** Never grow past this, however long the translation is — scroll instead. */
 const MAX_HEIGHT = 520;
 /** Below this the panel looks broken rather than compact. */
-const MIN_HEIGHT = 90;
+const MIN_HEIGHT = 56;
 
 /**
  * Size the window to its content, the way the system Look Up panel does.

@@ -135,6 +135,67 @@ pub fn configure_space_behavior(app: &AppHandle) {
     // Without this the panel vanishes whenever another app becomes active,
     // which for a popup summoned over someone else's window is immediate.
     panel.set_hides_on_deactivate(false);
+
+    // Last, because `set_style_mask` above is what breaks the transparency
+    // this restores.
+    sync_appearance(&window);
+}
+
+/// Make the window agree with the system about how it should look: the right
+/// light/dark appearance, and transparent so the vibrancy layer is what shows.
+///
+/// Both halves fix the same symptom — a flat slab where a translucent panel
+/// should be — from opposite directions:
+///
+/// - `NSVisualEffectView` takes its colour from the window's
+///   `effectiveAppearance`. Left unset it rendered *light* on a dark desktop,
+///   so the CSS switched to dark text while the material behind it did not,
+///   and the panel came out white with near-white writing on it.
+/// - Assigning a style mask (see [`configure_space_behavior`]) makes AppKit
+///   re-derive the window's opacity. It comes back opaque, painting a solid
+///   background straight over the vibrancy view. Tauri set both of these from
+///   `"transparent": true` at construction; the panel conversion undoes it.
+///
+/// **Must run on the main thread** — every AppKit call here does.
+#[cfg(target_os = "macos")]
+// `objc`'s `msg_send!` expands to `#[cfg(not(feature = "cargo-clippy"))]`, a
+// feature no crate here declares, so every call site would otherwise raise an
+// `unexpected_cfgs` warning about the macro's own internals.
+#[allow(unexpected_cfgs)]
+pub fn sync_appearance(window: &WebviewWindow) {
+    use tauri_nspanel::objc::runtime::Object;
+    use tauri_nspanel::objc::{class, msg_send, sel, sel_impl};
+
+    let ns_window = match window.ns_window() {
+        Ok(handle) => handle as *mut Object,
+        Err(e) => {
+            eprintln!("tra: no NSWindow to set the appearance on ({e})");
+            return;
+        }
+    };
+
+    // An unknown theme means "follow the system", and Aqua is what macOS falls
+    // back to itself. Both names are ASCII literals with a trailing NUL, so
+    // `stringWithUTF8String:` can read them straight out of the binary.
+    let name: &[u8] = if matches!(window.theme(), Ok(tauri::Theme::Dark)) {
+        b"NSAppearanceNameDarkAqua\0"
+    } else {
+        b"NSAppearanceNameAqua\0"
+    };
+
+    // SAFETY: called only on the main thread (see the doc comment above), and
+    // `ns_window` is a live NSWindow for as long as `window` is.
+    unsafe {
+        let name: *mut Object = msg_send![class!(NSString), stringWithUTF8String: name.as_ptr()];
+        let appearance: *mut Object = msg_send![class!(NSAppearance), appearanceNamed: name];
+        if !appearance.is_null() {
+            let _: () = msg_send![ns_window, setAppearance: appearance];
+        }
+
+        let _: () = msg_send![ns_window, setOpaque: false];
+        let clear: *mut Object = msg_send![class!(NSColor), clearColor];
+        let _: () = msg_send![ns_window, setBackgroundColor: clear];
+    }
 }
 
 /// Non-macOS: Tauri's own API is enough, and there is no fullscreen-Space
@@ -164,6 +225,13 @@ fn show_panel(app: &AppHandle) {
     let app = app.clone();
     let dispatched = app.clone().run_on_main_thread(move || {
         use tauri_nspanel::ManagerExt as _;
+
+        // Re-applied on every show rather than once at startup: the user can
+        // switch appearance, or cross the auto light/dark boundary at dusk,
+        // while this long-lived utility sits in the tray.
+        if let Some(window) = main_window(&app) {
+            sync_appearance(&window);
+        }
 
         match app.get_webview_panel(MAIN_WINDOW) {
             Ok(panel) => {

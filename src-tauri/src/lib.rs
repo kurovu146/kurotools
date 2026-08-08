@@ -94,11 +94,19 @@ pub fn run() {
                 use window_vibrancy::{
                     apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
                 };
+
+                // Before the material is attached, so it is built against the
+                // right appearance rather than corrected afterwards.
+                popup::sync_appearance(&window);
+
                 if let Err(e) = apply_vibrancy(
                     &window,
-                    // HudWindow is the material the system uses for transient
-                    // overlay panels, which is exactly what this is.
-                    NSVisualEffectMaterial::HudWindow,
+                    // Popover, not HudWindow: HudWindow is the grey box the
+                    // volume and brightness overlays use, and it renders the
+                    // same flat mid-grey whatever is behind it. Popover is
+                    // what the Look Up panel itself sits on — dark charcoal
+                    // in dark mode, near-white in light.
+                    NSVisualEffectMaterial::Popover,
                     // Active regardless of whether this app is frontmost: the
                     // popup is shown *without* activating, so "follows window
                     // active state" would render it permanently inactive.

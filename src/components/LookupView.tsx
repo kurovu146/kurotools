@@ -1,67 +1,65 @@
 import type { Lookup } from "../lookup";
-import { Headword, Muted, Section, Sense } from "./Section";
+import { Divider, Headword, Label, Muted, Sense } from "./primitives";
 import { SourceActions } from "./SourceActions";
 
 const MAX_CHARS = 5000;
 
 /**
- * The result, laid out like the macOS Look Up panel: an **English** section
- * with the headword and numbered senses, then a **Vietnamese** section.
+ * The result, laid out like the macOS Look Up panel: the looked-up text at the
+ * top with its senses beneath, a hairline, then the Vietnamese translation.
  *
  * Two rules carried over from `tl`, both load-bearing:
  *
- * - The English section is **omitted entirely** when there are no definitions.
- *   An empty labelled section is noise, not information.
- * - The Vietnamese section **always renders**, showing "unavailable" when there
- *   is no translation. It is the section the tool exists for, so its absence
- *   must be stated rather than inferred from a gap.
+ * - The dictionary senses are **omitted entirely** when there are none. An
+ *   empty labelled block is noise, not information.
+ * - The translation **always renders**, showing "unavailable" when there is
+ *   none. It is the block the tool exists for, so its absence must be stated
+ *   rather than inferred from a gap.
  */
 export function LookupView({ result }: { result: Lookup }) {
-  const hasDefinitions = result.definitions.length > 0;
+  const partsOfSpeech = partOfSpeechLine(result.definitions);
 
   return (
-    <div className="flex flex-col pb-3">
-      {hasDefinitions ? (
-        <Section label="English" action={<SourceActions text={result.source} />}>
-          <Headword
-            word={result.source}
-            detail={partOfSpeechLine(result.definitions)}
-          />
+    <div className="px-3.5 pt-3 pb-3.5">
+      {/* items-start, not items-center: against a two-line phrase the buttons
+          belong beside the first line, not floating at its midpoint. */}
+      <div className="flex items-start gap-2">
+        <Headword text={result.source} />
+        <SourceActions text={result.source} />
+      </div>
+
+      {partsOfSpeech && (
+        <p className="pt-1 text-[12px] text-fg-dim italic">{partsOfSpeech}</p>
+      )}
+
+      {result.definitions.length > 0 && (
+        <ol className="pt-1.5">
           {result.definitions.map((d, i) => (
             <Sense key={i} index={i + 1}>
-              {d.domain && (
-                <span className="text-neutral-600 italic dark:text-neutral-400">
-                  {d.domain}{" "}
-                </span>
-              )}
+              {d.domain && <span className="text-fg-dim italic">{d.domain} </span>}
               {d.gloss}
             </Sense>
           ))}
-        </Section>
-      ) : (
-        /* No dictionary entry — a phrase, or a word the endpoint does not know.
-           The source still needs showing, since it is what was actually sent. */
-        <Section label="Source" action={<SourceActions text={result.source} />}>
-          <p className="break-words whitespace-pre-wrap">{result.source}</p>
-        </Section>
+        </ol>
       )}
 
       {result.source_truncated && (
-        <div className="px-4">
-          <Muted>
-            … truncated at {MAX_CHARS.toLocaleString()} characters — only that
-            much was sent
-          </Muted>
-        </div>
+        <p className="pt-1.5 text-[12px] text-fg-faint italic">
+          … truncated at {MAX_CHARS.toLocaleString()} characters — only that
+          much was sent
+        </p>
       )}
 
-      <Section label="Vietnamese">
-        {result.translation ? (
-          <p className="break-words whitespace-pre-wrap">{result.translation}</p>
-        ) : (
-          <Muted>unavailable</Muted>
-        )}
-      </Section>
+      <Divider />
+
+      <Label>Vietnamese</Label>
+      {result.translation ? (
+        <p className="text-[14px] leading-snug break-words whitespace-pre-wrap">
+          {result.translation}
+        </p>
+      ) : (
+        <Muted>unavailable</Muted>
+      )}
     </div>
   );
 }

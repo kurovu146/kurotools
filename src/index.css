@@ -7,6 +7,61 @@
    slab instead of a dark translucent one. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* One place for every colour in the panel. Written as alpha over whatever the
+   vibrancy layer produces, not as fixed greys: the background is a live blur
+   of the desktop, so a solid `neutral-500` reads differently over a bright
+   page than over a dark terminal, while a translucent white or black tracks
+   it. */
+:root {
+  --tra-fg: rgba(0, 0, 0, 0.88);
+  --tra-fg-dim: rgba(0, 0, 0, 0.52);
+  --tra-fg-faint: rgba(0, 0, 0, 0.36);
+  --tra-rule: rgba(0, 0, 0, 0.13);
+  --tra-hover: rgba(0, 0, 0, 0.07);
+  --tra-edge: rgba(0, 0, 0, 0.16);
+  /* The scrim over the blur, and the reason it is this heavy.
+
+     The popup is summoned over arbitrary windows, so the vibrancy layer
+     underneath it can come back any colour at all. Every lighter value tried
+     here looked right against whatever happened to be on screen at the time
+     and then washed out over the next thing — so the alpha is derived rather
+     than eyeballed.
+
+     Compositing alpha α of the scrim over an unknown backdrop B leaves the
+     panel anywhere in `α·S + (1-α)·B`. Taking the worst case for each theme —
+     pure black behind the light panel, pure white behind the dark one — and
+     requiring 7:1 against the body text puts the floor at α ≈ 0.71 dark and
+     α ≈ 0.66 light. These sit above both, and a measured worst case really
+     does turn up in ordinary use: over a white window the dark panel lands
+     within a shade of that bound every time.
+
+     The blur is still doing visible work at a fifth of the composite, which
+     is about where the system panel sits too — it is far more solid than it
+     first appears. */
+  --tra-scrim: rgba(255, 255, 255, 0.84);
+}
+
+:root.dark {
+  --tra-fg: rgba(255, 255, 255, 0.92);
+  --tra-fg-dim: rgba(255, 255, 255, 0.55);
+  --tra-fg-faint: rgba(255, 255, 255, 0.38);
+  --tra-rule: rgba(255, 255, 255, 0.14);
+  --tra-hover: rgba(255, 255, 255, 0.1);
+  --tra-edge: rgba(255, 255, 255, 0.16);
+  --tra-scrim: rgba(10, 10, 12, 0.8);
+}
+
+/* Exposed as Tailwind colours so components say `text-fg-dim`, and light and
+   dark stay defined in exactly one place above rather than as a `dark:` twin
+   on every element. */
+@theme {
+  --color-fg: var(--tra-fg);
+  --color-fg-dim: var(--tra-fg-dim);
+  --color-fg-faint: var(--tra-fg-faint);
+  --color-rule: var(--tra-rule);
+  --color-hover: var(--tra-hover);
+}
+
 /* The window is transparent so the native vibrancy layer shows through; the
    rounded card is drawn here. Any opaque background covers the blur. */
 html,
@@ -14,7 +69,6 @@ body,
 #root {
   height: 100%;
   margin: 0;
-  overflow: hidden;
   background: transparent;
 }
 
@@ -23,6 +77,12 @@ body,
      content clip to the same shape. */
   border-radius: 12px;
   overflow: hidden;
+  background: var(--tra-scrim);
+  /* Hairline edge. The panel is summoned over arbitrary windows and lands on
+     something its own shade often enough — over a dark Finder window its
+     boundary vanished entirely. Inset, so it follows the rounded corners
+     rather than squaring them off. */
+  box-shadow: inset 0 0 0 0.5px var(--tra-edge);
 }
 
 body {
@@ -33,10 +93,12 @@ body {
   /* Vietnamese diacritics stack above and below the baseline; the default
      line-height clips them at small sizes. */
   line-height: 1.5;
+  color: var(--tra-fg);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Scrollbars are noise inside a small translucent panel. */
+/* Scrollbars are noise inside a small translucent panel. Hidden, not
+   disabled — the wheel still scrolls a definition too long for the panel. */
 ::-webkit-scrollbar {
   width: 0;
   height: 0;

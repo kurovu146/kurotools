@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { hidePopup, onCapture } from "./capture";
 import { LookupView } from "./components/LookupView";
-import { Muted } from "./components/Section";
+import { Muted } from "./components/primitives";
 import { PermissionGate } from "./components/PermissionGate";
 import { lookup, type Lookup } from "./lookup";
 import { useHeightFitsContent, useSystemTheme } from "./window";
@@ -64,63 +64,60 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  if (state.kind === "needsPermission") {
-    return (
-      <main
-        ref={contentRef}
-        className="bg-neutral-200/60 text-neutral-900 dark:bg-neutral-800/40 dark:text-neutral-50"
-      >
-        <PermissionGate
-          onGranted={() => setState({ kind: "idle" })}
-          onSkip={() => setState({ kind: "idle" })}
-        />
-      </main>
-    );
-  }
-
   // The search box only appears when there is nothing to read. The system
   // panel has no input at all, and once a result is on screen the field is
   // just a bright bar sitting above the thing you actually wanted.
   const showInput = state.kind === "idle";
 
   return (
-    // No tint over the vibrancy — a background here paints over the blur and
-    // turns the panel into a flat slab, which is exactly how the first attempt
-    // looked. Only the text colours are set.
-    <main
-      ref={contentRef}
-      className="text-neutral-900 dark:text-neutral-100"
-    >
-      {showInput && (
-        <form
-          className="px-4 pt-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void run(query);
-          }}
-        >
-          <input
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Look up a word…"
-            aria-label="Text to look up"
-            className="w-full rounded-lg bg-black/5 px-3 py-1.5 font-sans text-[13px] outline-none placeholder:text-neutral-500 focus:bg-black/10 dark:bg-white/10 dark:placeholder:text-neutral-400 dark:focus:bg-white/15"
+    // No tint over the vibrancy here — the translucent scrim is painted on
+    // #root, under the rounded clip, so it covers the corners too. A
+    // background on an inner element paints over the blur *and* squares off
+    // the corners, which is exactly how the first attempt looked.
+    //
+    // The scroll lives on <main> while the height is measured from the child:
+    // measuring a scroll container reports the height it already has, so the
+    // panel could grow but never shrink.
+    <main className="max-h-screen overflow-y-auto">
+      <div ref={contentRef}>
+        {state.kind === "needsPermission" && (
+          <PermissionGate
+            onGranted={() => setState({ kind: "idle" })}
+            onSkip={() => setState({ kind: "idle" })}
           />
-        </form>
-      )}
+        )}
 
-      {state.kind === "idle" && (
-        <div className="px-4 pt-2 pb-4">
-          <Muted>Select text anywhere, then press the hotkey.</Muted>
-        </div>
-      )}
-      {state.kind === "loading" && (
-        <div className="p-4">
-          <Muted>Looking up “{state.text}”…</Muted>
-        </div>
-      )}
-      {state.kind === "done" && <LookupView result={state.result} />}
+        {showInput && (
+          <form
+            className="px-3.5 pt-3.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(query);
+            }}
+          >
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Look up a word…"
+              aria-label="Text to look up"
+              className="w-full rounded-lg bg-hover px-2.5 py-1.5 font-sans text-[13px] outline-none placeholder:text-fg-faint"
+            />
+          </form>
+        )}
+
+        {state.kind === "idle" && (
+          <div className="px-3.5 pt-2 pb-3.5">
+            <Muted>Select text anywhere, then press the hotkey.</Muted>
+          </div>
+        )}
+        {state.kind === "loading" && (
+          <div className="px-3.5 py-3.5">
+            <Muted>Looking up “{state.text}”…</Muted>
+          </div>
+        )}
+        {state.kind === "done" && <LookupView result={state.result} />}
+      </div>
     </main>
   );
 }

@@ -58,10 +58,10 @@ export function PermissionGate({
   }, [onGranted]);
 
   return (
-    <div className="flex h-full flex-col justify-center gap-3 p-5 text-sm">
-      <h1 className="text-base font-semibold">Let Tra read your selection</h1>
+    <div className="flex flex-col gap-3 p-4 text-[13px]">
+      <h1 className="text-[15px] font-semibold">Let Tra read your selection</h1>
 
-      <p className="text-neutral-600 dark:text-neutral-300">
+      <p className="text-fg-dim">
         To look up the text you highlight in other apps, macOS requires
         Accessibility access. Tra uses it for one thing only: copying your
         current selection when you press the hotkey. Your clipboard is put back
@@ -81,14 +81,14 @@ export function PermissionGate({
         </button>
 
         <button
-          className="rounded-md px-3 py-2 text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          className="rounded-md px-3 py-2 text-fg-dim hover:bg-hover"
           onClick={onSkip}
         >
           Continue without it
         </button>
       </div>
 
-      <p className="text-[12px] text-neutral-500 dark:text-neutral-400">
+      <p className="text-[12px] text-fg-faint">
         Without access, Tra still works — copy the text first, then press the
         hotkey.
       </p>

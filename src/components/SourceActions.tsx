@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { isSaved, saveWord, speak, ttsAvailable, unsaveWord } from "../store";
 
 /**
@@ -41,30 +41,97 @@ export function SourceActions({ text }: { text: string }) {
   }
 
   return (
-    <span className="flex items-center gap-1">
+    // shrink-0 so a long headword cannot squeeze the buttons out of the row.
+    <span className="flex shrink-0 items-center gap-0.5 pt-0.5">
       {canSpeak && (
-        <button
+        <IconButton
           onClick={() => void speak(text).catch(() => {})}
-          title="Pronounce"
-          aria-label="Pronounce"
-          className="rounded px-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+          label="Pronounce"
         >
-          ►
-        </button>
+          <SpeakerIcon />
+        </IconButton>
       )}
-      <button
+      <IconButton
         onClick={() => void toggleSave()}
-        title={saved ? "Remove from saved words" : "Save this word"}
-        aria-label={saved ? "Remove from saved words" : "Save this word"}
-        aria-pressed={saved}
-        className={
-          saved
-            ? "rounded px-1 text-amber-500"
-            : "rounded px-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-        }
+        label={saved ? "Remove from saved words" : "Save this word"}
+        pressed={saved}
+        active={saved}
       >
-        {saved ? "★" : "☆"}
-      </button>
+        <StarIcon filled={saved} />
+      </IconButton>
     </span>
+  );
+}
+
+/**
+ * A square hit target for a 16px glyph.
+ *
+ * Dimmed until hovered: these sit next to the headword, and at full strength
+ * they competed with the word itself for attention.
+ */
+function IconButton({
+  onClick,
+  label,
+  pressed,
+  active,
+  children,
+}: {
+  onClick: () => void;
+  label: string;
+  pressed?: boolean;
+  active?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      aria-pressed={pressed}
+      className={`flex size-6 items-center justify-center rounded-md hover:bg-hover ${
+        active ? "text-amber-500" : "text-fg-faint hover:text-fg"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path
+        d="M8.3 3.1 5.3 5.8H3.1a.6.6 0 0 0-.6.6v3.2c0 .33.27.6.6.6h2.2l3 2.7z"
+        fill="currentColor"
+        stroke="none"
+      />
+      <path d="M10.8 6.1a2.7 2.7 0 0 1 0 3.8" />
+      <path d="M12.7 4.3a5.3 5.3 0 0 1 0 7.4" />
+    </svg>
+  );
+}
+
+function StarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-4"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinejoin="round"
+    >
+      <path d="M8 2.4l1.7 3.44 3.8.55-2.75 2.68.65 3.78L8 11.06l-3.4 1.79.65-3.78L2.5 6.39l3.8-.55z" />
+    </svg>
   );
 }
