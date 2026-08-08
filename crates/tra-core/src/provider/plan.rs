@@ -30,11 +30,13 @@ pub struct FirstPass {
 /// concurrently.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Followups {
-    /// A dictionary request in the fallback language, when the first pass
-    /// produced no definitions and the source was auto.
+    /// A dictionary request, when the first pass produced no definitions and
+    /// the source was auto. In `target` when the first pass echoed the input
+    /// — that echo is proof the text is already in `target` — and in the
+    /// fallback language otherwise.
     pub definition: Option<Request>,
     /// A re-translation into the fallback language, when the first pass came
-    /// back as a no-op.
+    /// back as a no-op and the fallback is not itself the source.
     pub retranslate: Option<Request>,
 }
 
@@ -63,19 +65,38 @@ pub fn initial_request(config: &LangConfig, source: &str) -> Option<Request> {
 
 /// What still needs asking after the first response.
 pub fn followups(config: &LangConfig, source: &str, first: &FirstPass) -> Followups {
+    let echoed = is_no_op(source, first.translation.as_deref());
+
     // Only when the source was auto. With `sl` pinned, an empty `md` means
-    // the word has no dictionary entry — asking the fallback language would
+    // the word has no dictionary entry — asking a second language would
     // define the text as though it were written in a language it is not.
     let definition = (config.source().is_none()
         && first.definitions.is_empty()
         && model::wants_definitions(source))
-    .then(|| Request {
-        sl: config.other().code().to_owned(),
-        tl: config.other().code().to_owned(),
-        dts: vec!["md"],
+    .then(|| {
+        // An echoed translation is the response saying the text is already in
+        // `target`, so that is the dictionary to ask. Only when the response
+        // said nothing about the source is the fallback the best guess —
+        // asking `other` after an echo would query the one language the
+        // response just ruled out.
+        let lang = if echoed {
+            config.target()
+        } else {
+            config.other()
+        };
+        Request {
+            sl: lang.code().to_owned(),
+            tl: lang.code().to_owned(),
+            dts: vec!["md"],
+        }
     });
 
-    let retranslate = is_no_op(source, first.translation.as_deref()).then(|| Request {
+    // `source == other` survives `LangConfig::new` — it repairs collisions
+    // with `target`, not between these two. Retrying into the source language
+    // would be an `sl == tl` request, which F4 says returns the input
+    // unchanged: a guaranteed-wasted round trip.
+    let worth_retrying = echoed && config.source() != Some(config.other());
+    let retranslate = worth_retrying.then(|| Request {
         sl: config.sl().to_owned(),
         tl: config.other().code().to_owned(),
         dts: vec!["t"],
@@ -330,8 +351,14 @@ mod tests {
     }
 
     /// Invariant 2, over every combination of config and first pass.
+    ///
+    /// Counting the requests is not enough: summing three `Option`s and
+    /// asserting `<= 3` is arithmetic, true no matter what the planner does.
+    /// So this inspects the requests themselves — no plan may repeat a request,
+    /// and no plan may contain a translation whose answer is knowable in
+    /// advance (F4: `sl == tl` returns the input verbatim).
     #[test]
-    fn a_lookup_never_plans_more_than_three_requests() {
+    fn a_lookup_plans_at_most_three_requests_and_never_a_wasted_one() {
         let subset: Vec<Lang> = ["en", "vi", "de", "ja"].iter().map(|c| lang(c)).collect();
         let sources: Vec<Option<Lang>> = std::iter::once(None)
             .chain(subset.iter().copied().map(Some))
@@ -348,16 +375,66 @@ mod tests {
                 for &other in &subset {
                     let c = LangConfig::new(source, target, other);
                     for pass in &passes {
-                        let initial = initial_request(&c, "idempotent").is_some() as usize;
                         let f = followups(&c, "idempotent", pass);
-                        let total = initial
-                            + f.definition.is_some() as usize
-                            + f.retranslate.is_some() as usize;
-                        assert!(total <= 3, "planned {total} requests for {c:?}");
+                        let planned: Vec<Request> = initial_request(&c, "idempotent")
+                            .into_iter()
+                            .chain(f.definition)
+                            .chain(f.retranslate)
+                            .collect();
+
+                        assert!(
+                            planned.len() <= 3,
+                            "planned {} requests for {c:?}",
+                            planned.len()
+                        );
+                        for (i, a) in planned.iter().enumerate() {
+                            assert!(
+                                !planned[i + 1..].contains(a),
+                                "duplicate request {a:?} for {c:?}"
+                            );
+                            assert!(
+                                a.dts != vec!["t"] || a.sl != a.tl,
+                                "no-op translation request {a:?} for {c:?}"
+                            );
+                        }
                     }
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_source_equal_to_the_fallback_plans_no_retranslation() {
+        // `LangConfig::new` repairs `other == target` and `source == target`,
+        // but never `source == other`, so this config arrives intact. The
+        // retry would be en -> en, which F4 guarantees echoes the input.
+        let c = LangConfig::new(Some(Lang::EN), Lang::VI, Lang::EN);
+        assert_eq!(c.sl(), "en", "the config under test must survive repair");
+        assert_eq!(c.other(), Lang::EN);
+
+        let f = followups(&c, "idempotent", &first_pass(Some("idempotent"), 0));
+        assert!(f.retranslate.is_none());
+    }
+
+    #[test]
+    fn a_no_op_first_pass_asks_the_target_dictionary_not_the_fallback() {
+        // The endpoint handing the text back means the text is already in
+        // `target`. Asking `other` would be asking the one language the
+        // response just proved the text is not written in.
+        let c = LangConfig::default();
+        let d = followups(&c, "con mèo", &first_pass(Some("con mèo"), 0))
+            .definition
+            .expect("expected a definition follow-up");
+        assert_eq!(d.sl, "vi");
+        assert_eq!(d.tl, "vi");
+
+        // The other branch is unchanged: a useful translation says nothing
+        // about the source, so the fallback language is still the best guess.
+        let d = followups(&c, "idempotent", &first_pass(Some("bình thường"), 0))
+            .definition
+            .expect("expected a definition follow-up");
+        assert_eq!(d.sl, "en");
+        assert_eq!(d.tl, "en");
     }
 
     /// Measured fact F2, as a structural guard: `sl=auto` mis-detects single
@@ -367,18 +444,36 @@ mod tests {
     #[test]
     fn what_the_endpoint_detected_never_changes_the_plan() {
         let config = LangConfig::default();
-        let baseline = followups(&config, "idempotent", &first_pass(Some("bình thường"), 0));
+        // Two fixtures, because one leaves an arm unpinned: a useful
+        // translation exercises only the definition follow-up, while a no-op
+        // one — identical to the source below — exercises both. The
+        // assertions on the baselines keep a future edit from quietly
+        // degrading either fixture into covering nothing.
+        let fixtures = [("bình thường", false), ("idempotent", true)];
 
-        for detected in [None, Some(Lang::EN), Some(Lang::VI), Some(lang("la"))] {
-            let pass = FirstPass {
-                detected,
-                ..first_pass(Some("bình thường"), 0)
-            };
-            assert_eq!(
-                followups(&config, "idempotent", &pass),
-                baseline,
-                "detection changed the plan: {detected:?}"
+        for (translation, plans_a_retranslation) in fixtures {
+            let baseline = followups(&config, "idempotent", &first_pass(Some(translation), 0));
+            assert!(
+                baseline.definition.is_some(),
+                "fixture {translation:?} must exercise the definition arm"
             );
+            assert_eq!(
+                baseline.retranslate.is_some(),
+                plans_a_retranslation,
+                "fixture {translation:?} must exercise the retranslate arm as declared"
+            );
+
+            for detected in [None, Some(Lang::EN), Some(Lang::VI), Some(lang("la"))] {
+                let pass = FirstPass {
+                    detected,
+                    ..first_pass(Some(translation), 0)
+                };
+                assert_eq!(
+                    followups(&config, "idempotent", &pass),
+                    baseline,
+                    "detection changed the plan for {translation:?}: {detected:?}"
+                );
+            }
         }
     }
 
