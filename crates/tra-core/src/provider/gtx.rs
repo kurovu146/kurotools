@@ -8,6 +8,7 @@
 //! treated as an error — a shape change upstream must degrade to "no result",
 //! never to a panic.
 
+use crate::lang::Lang;
 use crate::model::Definition;
 
 /// The live endpoint. Overridable per-provider so tests can point at a local
@@ -150,6 +151,20 @@ pub fn parse_definitions_capped(json: &str, cap: usize) -> Vec<Definition> {
     out
 }
 
+/// The language the endpoint says it detected, at index `[2]`.
+///
+/// **Only ever used to label the result.** Measured on single words this is
+/// wrong roughly half the time — `idempotent` reports `la`, `Haus` reports
+/// `en` — so choosing a request from it would break the definition pane for
+/// exactly the inputs a lookup popup receives. Codes outside [`SUPPORTED`]
+/// map to `None` so nothing unvalidated can reach a URL.
+///
+/// [`SUPPORTED`]: crate::lang::SUPPORTED
+pub fn parse_detected(json: &str) -> Option<Lang> {
+    let root: serde_json::Value = serde_json::from_str(json).ok()?;
+    Lang::from_code(root.get(2)?.as_str()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,5 +299,37 @@ mod tests {
         let url = build_url("https://x/y", "auto", "vi", "điều kiện", &["t"]);
         assert!(!url.contains(' '), "unencoded space in {url}");
         assert!(url.contains("%C4%91"));
+    }
+
+    // -- detected language --------------------------------------------------
+
+    #[test]
+    fn parse_detected_reads_the_language_code() {
+        assert_eq!(
+            parse_detected(r#"[[["x","y",null,null,1]],null,"de"]"#),
+            Lang::from_code("de")
+        );
+    }
+
+    #[test]
+    fn parse_detected_maps_an_unsupported_code_to_none() {
+        // The endpoint has answered with codes outside its own accepted set.
+        // Anything the table does not know must not reach a URL.
+        assert_eq!(parse_detected(r#"[[["x","y"]],null,"xx-YY"]"#), None);
+    }
+
+    #[test]
+    fn parse_detected_tolerates_a_missing_or_malformed_field() {
+        assert_eq!(parse_detected("[[]]"), None);
+        assert_eq!(parse_detected(r#"[[],null,7]"#), None);
+        assert_eq!(parse_detected("not json at all"), None);
+    }
+
+    #[test]
+    fn parse_detected_reads_latin_from_the_real_idempotent_response() {
+        // The measured case that rules out driving the definition pane from
+        // detection: this is a genuine capture, and `la` is what it says.
+        let detected = parse_detected(&fixture("auto_la_idempotent.json"));
+        assert_eq!(detected, Lang::from_code("la"));
     }
 }
