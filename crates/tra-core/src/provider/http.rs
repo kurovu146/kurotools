@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use crate::lang::Lang;
 use crate::model::{self, Lookup};
 use crate::provider::gtx;
 
@@ -58,7 +59,7 @@ impl GtxProvider {
         let (source, source_truncated) = model::truncate_source(text);
 
         if source.trim().is_empty() {
-            return Lookup::unavailable(source, source_truncated);
+            return Lookup::unavailable(source, source_truncated, Lang::VI);
         }
 
         let wants_definitions = source.split_whitespace().count() <= model::MAX_DEFINITION_WORDS;
@@ -87,6 +88,9 @@ impl GtxProvider {
                 .unwrap_or_default(),
             source,
             source_truncated,
+            source_lang: None,
+            target_lang: Lang::VI,
+            definition_lang: None,
         }
     }
 }

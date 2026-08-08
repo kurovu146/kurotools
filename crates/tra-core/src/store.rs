@@ -178,6 +178,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lang::Lang;
 
     fn lookup(source: &str, translation: Option<&str>) -> Lookup {
         Lookup {
@@ -185,6 +186,9 @@ mod tests {
             source_truncated: false,
             definitions: Vec::new(),
             translation: translation.map(str::to_owned),
+            source_lang: None,
+            target_lang: Lang::VI,
+            definition_lang: None,
         }
     }
 

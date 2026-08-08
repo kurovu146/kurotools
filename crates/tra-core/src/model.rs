@@ -2,6 +2,8 @@
 
 use serde::Serialize;
 
+use crate::lang::Lang;
+
 /// Hard cap on how much text is sent to a provider in one lookup.
 ///
 /// Inherited from `tl`. Chosen to keep a runaway paste — a whole file selected
@@ -39,16 +41,28 @@ pub struct Lookup {
     pub source_truncated: bool,
     pub definitions: Vec<Definition>,
     pub translation: Option<String>,
+    /// The configured source, or what auto-detection reported. `None` when
+    /// the source was auto and detection produced nothing usable.
+    pub source_lang: Option<Lang>,
+    /// The language actually translated into — **not** necessarily the one
+    /// configured. When the no-op rule retries into the fallback language the
+    /// two differ, and the UI has to label what it is showing.
+    pub target_lang: Lang,
+    /// The language `definitions` are written in. `None` when there are none.
+    pub definition_lang: Option<Lang>,
 }
 
 impl Lookup {
     /// A lookup that resolved to nothing. The provider's failure path.
-    pub fn unavailable(source: String, source_truncated: bool) -> Self {
+    pub fn unavailable(source: String, source_truncated: bool, target_lang: Lang) -> Self {
         Self {
             source,
             source_truncated,
             definitions: Vec::new(),
             translation: None,
+            source_lang: None,
+            target_lang,
+            definition_lang: None,
         }
     }
 
@@ -59,8 +73,17 @@ impl Lookup {
 
     /// Whether this input is short enough to be worth a dictionary request.
     pub fn wants_definitions(&self) -> bool {
-        self.word_count() <= MAX_DEFINITION_WORDS
+        wants_definitions(&self.source)
     }
+}
+
+/// Whether `text` is short enough to be worth a dictionary request.
+///
+/// A free function as well as a method because the request planner has to
+/// decide before any `Lookup` exists.
+pub fn wants_definitions(text: &str) -> bool {
+    let words = text.split_whitespace().count();
+    words > 0 && words <= MAX_DEFINITION_WORDS
 }
 
 /// Cap `text` at [`MAX_CHARS`], reporting whether it was cut.
@@ -85,7 +108,7 @@ mod tests {
     use super::*;
 
     fn lookup_of(source: &str) -> Lookup {
-        Lookup::unavailable(source.to_owned(), false)
+        Lookup::unavailable(source.to_owned(), false, Lang::VI)
     }
 
     #[test]
@@ -162,10 +185,29 @@ mod tests {
 
     #[test]
     fn unavailable_carries_the_source_through() {
-        let l = Lookup::unavailable("idempotent".into(), true);
+        let l = Lookup::unavailable("idempotent".into(), true, Lang::VI);
         assert_eq!(l.source, "idempotent");
         assert!(l.source_truncated);
         assert!(l.translation.is_none());
         assert!(l.definitions.is_empty());
+    }
+
+    #[test]
+    fn unavailable_records_the_target_it_was_aiming_at() {
+        // The UI labels the translation block with the language it was trying to
+        // produce, so even a failed lookup has to carry one.
+        let l = Lookup::unavailable("idempotent".into(), false, Lang::VI);
+        assert_eq!(l.target_lang, Lang::VI);
+        assert_eq!(l.source_lang, None);
+        assert_eq!(l.definition_lang, None);
+    }
+
+    #[test]
+    fn wants_definitions_is_available_without_building_a_lookup() {
+        // The request planner decides before a Lookup exists.
+        assert!(wants_definitions("idempotent"));
+        assert!(wants_definitions("one two three four"));
+        assert!(!wants_definitions("one two three four five"));
+        assert!(!wants_definitions("   "));
     }
 }
