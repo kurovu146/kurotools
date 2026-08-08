@@ -16,6 +16,15 @@ export interface Lookup {
   definitions: Definition[];
   /** `null` means the provider could not answer — render "unavailable". */
   translation: string | null;
+  /** The configured source, or what detection reported. `null` when unknown. */
+  source_lang: string | null;
+  /**
+   * The language actually translated into — not necessarily the configured
+   * one. The no-op retry changes it, and the label must follow.
+   */
+  target_lang: string;
+  /** The language `definitions` are written in. `null` when there are none. */
+  definition_lang: string | null;
 }
 
 /**
