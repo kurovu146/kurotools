@@ -22,10 +22,24 @@ export default function App() {
   /** The text the current result came from, so a language change can re-run it. */
   const [lastText, setLastText] = useState("");
 
+  /**
+   * The picker is really on screen — not merely requested.
+   *
+   * One name for all three things that have to agree: the overlay, the window
+   * height, and `inert`. `config` is null until its IPC resolves and stays
+   * null forever if that read failed, while the pair label keeps rendering
+   * (it draws from the result, not the config) — so a click on it can ask to
+   * pick with no picker to show. Keying the height off `picking` alone gave a
+   * 520px panel empty below the result; keying `inert` off it would have been
+   * worse, freezing the content behind an overlay that never appeared. Escape
+   * reads it too, so a press is never swallowed closing something invisible.
+   */
+  const pickerOpen = picking !== null && config !== null;
+
   useSystemTheme();
   // The picker is an overlay outside the measured element, so it cannot size
   // the window itself; hold the panel open at full height while it is up.
-  const contentRef = useHeightFitsContent<HTMLDivElement>(picking !== null);
+  const contentRef = useHeightFitsContent<HTMLDivElement>(pickerOpen);
 
   useEffect(() => {
     // Only the pair label needs this, and it renders "Auto" until it arrives —
@@ -50,6 +64,12 @@ export default function App() {
   // The hotkey path: the shell captures the selection and emits it.
   useEffect(() => {
     const unlisten = onCapture((event) => {
+      // A new capture replaces everything on screen, and the popup may well
+      // have been hidden with the picker still up — clicking away leaves no
+      // event to close it. Left alone it would reappear over the new result,
+      // at full height, listing languages for the lookup before it.
+      setPicking(null);
+
       switch (event.kind) {
         case "text":
           setQuery(event.text);
@@ -104,11 +124,12 @@ export default function App() {
   // so a single Shift+Tab lands focus on the buttons behind it. Any handler
   // scoped to the overlay's subtree would stop firing at that point and the
   // next Escape would take the whole popup with the picker still on screen.
-  // Deciding from `picking` holds wherever focus is.
+  // Deciding from state holds wherever focus is — and from `pickerOpen`, not
+  // `picking`, so a press cannot be swallowed closing something invisible.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
-      if (picking) {
+      if (pickerOpen) {
         setPicking(null);
         return;
       }
@@ -116,7 +137,7 @@ export default function App() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [picking]);
+  }, [pickerOpen]);
 
   // The search box only appears when there is nothing to read. The system
   // panel has no input at all, and once a result is on screen the field is
@@ -133,7 +154,13 @@ export default function App() {
     // measuring a scroll container reports the height it already has, so the
     // panel could grow but never shrink.
     <main className="max-h-screen overflow-y-auto" onMouseDown={startWindowDrag}>
-      <div ref={contentRef}>
+      {/* inert while the picker is up: the overlay is a sibling, not a modal
+          dialog, so without this Shift+Tab walks focus onto the buttons
+          underneath it — invisible below the scrim, and Enter there would
+          speak or save a word from behind the picker. One attribute does what
+          a focus trap would, and takes the content out of the a11y tree with
+          it. */}
+      <div ref={contentRef} inert={pickerOpen}>
         {state.kind === "needsPermission" && (
           <PermissionGate
             onGranted={() => setState({ kind: "idle" })}
@@ -188,7 +215,7 @@ export default function App() {
 
       {/* Outside the measured <div> on purpose: a list inside it would grow
           the window every time the picker opened. */}
-      {picking && config && (
+      {pickerOpen && (
         <LanguagePicker
           selected={
             picking === "source" ? (config.source ?? AUTO) : config.target
