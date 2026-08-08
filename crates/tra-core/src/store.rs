@@ -10,6 +10,8 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 
+use crate::config::LangConfig;
+use crate::lang::Lang;
 use crate::model::Lookup;
 
 #[derive(Debug, thiserror::Error)]
@@ -84,16 +86,136 @@ impl Store {
                 word     TEXT    NOT NULL UNIQUE,
                 saved_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             ",
+        )?;
+
+        // Nullable so every row written before this release stays valid.
+        self.add_column_if_missing("history", "source_lang", "TEXT")?;
+        self.add_column_if_missing("history", "target_lang", "TEXT")?;
+        // Not needed until SRS, but the language of a saved word cannot be
+        // re-derived from the word later, so it is recorded from the start.
+        self.add_column_if_missing("saved_words", "lang", "TEXT")?;
+
+        Ok(())
+    }
+
+    /// `ALTER TABLE ADD COLUMN`, but re-runnable.
+    ///
+    /// SQLite has no `IF NOT EXISTS` for columns, and `migrate` runs on every
+    /// open — so without this guard the second launch fails with "duplicate
+    /// column name" and the app never starts again.
+    fn add_column_if_missing(&self, table: &str, column: &str, decl: &str) -> Result<()> {
+        let exists: bool = self.conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info(?1) WHERE name = ?2",
+            (table, column),
+            |row| row.get(0),
+        )?;
+
+        if !exists {
+            // Interpolated rather than bound because SQLite does not accept
+            // parameters for identifiers. Safe here: every argument is a
+            // literal from this file, never user input.
+            self.conn
+                .execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))?;
+        }
+
+        Ok(())
+    }
+
+    // -- settings ------------------------------------------------------------
+
+    pub fn setting(&self, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
+                r.get(0)
+            })
+            .optional()?)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
         )?;
         Ok(())
     }
 
+    /// The stored language configuration, or the default.
+    ///
+    /// Every field degrades independently: an unreadable or unknown code falls
+    /// back rather than failing, because a bad row in this table must never be
+    /// able to stop the app from starting.
+    pub fn lang_config(&self) -> Result<LangConfig> {
+        let read = |key: &str| -> Option<Lang> {
+            self.setting(key)
+                .ok()
+                .flatten()
+                .and_then(|c| Lang::from_code(&c))
+        };
+
+        let default = LangConfig::default();
+        // "auto" is stored explicitly so an unset source and a deliberately
+        // automatic one are distinguishable.
+        let source = match self.setting("lang.source")?.as_deref() {
+            Some("auto") | None => None,
+            Some(code) => Lang::from_code(code),
+        };
+
+        Ok(LangConfig::new(
+            source,
+            read("lang.target").unwrap_or(default.target()),
+            read("lang.other").unwrap_or(default.other()),
+        ))
+    }
+
+    pub fn set_lang_config(&self, config: &LangConfig) -> Result<()> {
+        self.set_setting("lang.source", config.sl())?;
+        self.set_setting("lang.target", config.target().code())?;
+        self.set_setting("lang.other", config.other().code())?;
+        Ok(())
+    }
+
+    /// How many languages the picker pins above the full list.
+    const RECENT_LANGS: usize = 5;
+
+    /// The most recently chosen languages, newest first.
+    pub fn recent_langs(&self) -> Result<Vec<Lang>> {
+        Ok(self
+            .setting("lang.recents")?
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(Lang::from_code)
+            .collect())
+    }
+
+    /// Move `lang` to the front of the recents, capped at [`Self::RECENT_LANGS`].
+    pub fn push_recent_lang(&self, lang: Lang) -> Result<()> {
+        let mut recents = self.recent_langs()?;
+        recents.retain(|l| *l != lang);
+        recents.insert(0, lang);
+        recents.truncate(Self::RECENT_LANGS);
+
+        let joined: Vec<&str> = recents.iter().map(|l| l.code()).collect();
+        self.set_setting("lang.recents", &joined.join(","))
+    }
+
     pub fn record_lookup(&self, lookup: &Lookup) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO history (source, translation, looked_up_at)
-             VALUES (?1, ?2, unixepoch())",
-            (&lookup.source, &lookup.translation),
+            "INSERT INTO history (source, translation, source_lang, target_lang, looked_up_at)
+             VALUES (?1, ?2, ?3, ?4, unixepoch())",
+            (
+                &lookup.source,
+                &lookup.translation,
+                lookup.source_lang.map(|l| l.code()),
+                lookup.target_lang.code(),
+            ),
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -178,7 +300,6 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::Lang;
 
     fn lookup(source: &str, translation: Option<&str>) -> Lookup {
         Lookup {
@@ -295,5 +416,113 @@ mod tests {
 
         let reopened = Store::open(&path).unwrap();
         assert_eq!(reopened.saved_words().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_language_config_defaults_before_anything_is_saved() {
+        let s = Store::open_in_memory().unwrap();
+        assert_eq!(s.lang_config().unwrap(), LangConfig::default());
+    }
+
+    #[test]
+    fn the_language_config_round_trips() {
+        let s = Store::open_in_memory().unwrap();
+        let c = LangConfig::new(
+            Lang::from_code("de"),
+            Lang::from_code("ja").unwrap(),
+            Lang::EN,
+        );
+        s.set_lang_config(&c).unwrap();
+        assert_eq!(s.lang_config().unwrap(), c);
+    }
+
+    #[test]
+    fn an_unreadable_stored_language_falls_back_to_the_default() {
+        // A code that was valid in an older build, a hand-edited database, a
+        // corrupted row: none of these may stop the app from starting.
+        let s = Store::open_in_memory().unwrap();
+        s.set_setting("lang.target", "klingon").unwrap();
+        assert_eq!(
+            s.lang_config().unwrap().target(),
+            LangConfig::default().target()
+        );
+    }
+
+    #[test]
+    fn a_stored_config_that_would_break_an_invariant_is_repaired_on_read() {
+        let s = Store::open_in_memory().unwrap();
+        s.set_setting("lang.target", "en").unwrap();
+        s.set_setting("lang.other", "en").unwrap();
+        let c = s.lang_config().unwrap();
+        assert_ne!(c.other(), c.target());
+    }
+
+    #[test]
+    fn recent_languages_are_newest_first_and_capped() {
+        let s = Store::open_in_memory().unwrap();
+        for code in ["de", "ja", "es", "fr", "it", "ru"] {
+            s.push_recent_lang(Lang::from_code(code).unwrap()).unwrap();
+        }
+        let recents = s.recent_langs().unwrap();
+        assert_eq!(recents.len(), 5, "the picker shows five");
+        assert_eq!(recents[0], Lang::from_code("ru").unwrap());
+        assert!(
+            !recents.contains(&Lang::from_code("de").unwrap()),
+            "the oldest fell off"
+        );
+    }
+
+    #[test]
+    fn pushing_a_language_again_moves_it_to_the_front_without_duplicating() {
+        let s = Store::open_in_memory().unwrap();
+        for code in ["de", "ja", "de"] {
+            s.push_recent_lang(Lang::from_code(code).unwrap()).unwrap();
+        }
+        let recents = s.recent_langs().unwrap();
+        assert_eq!(
+            recents,
+            vec![
+                Lang::from_code("de").unwrap(),
+                Lang::from_code("ja").unwrap()
+            ]
+        );
+    }
+
+    #[test]
+    fn history_records_the_languages_a_lookup_ran_in() {
+        let s = Store::open_in_memory().unwrap();
+        let mut l = lookup("Haus", Some("Căn nhà"));
+        l.source_lang = Lang::from_code("de");
+        l.target_lang = Lang::VI;
+        s.record_lookup(&l).unwrap();
+
+        let (source_lang, target_lang): (Option<String>, Option<String>) = s
+            .conn
+            .query_row("SELECT source_lang, target_lang FROM history", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(source_lang.as_deref(), Some("de"));
+        assert_eq!(target_lang.as_deref(), Some("vi"));
+    }
+
+    #[test]
+    fn migrating_twice_does_not_fail_on_the_added_columns() {
+        // ALTER TABLE ADD COLUMN has no IF NOT EXISTS. Without the pragma guard
+        // this throws "duplicate column name" on the second open, which means
+        // every launch after the first.
+        let dir = std::env::temp_dir().join(format!("tra-migrate-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("twice.db");
+        let _ = std::fs::remove_file(&path);
+
+        let first = Store::open(&path).unwrap();
+        first.save_word("idempotent").unwrap();
+        drop(first);
+
+        let second = Store::open(&path).expect("second open must not fail");
+        assert!(second.is_saved("idempotent").unwrap());
+
+        let _ = std::fs::remove_file(&path);
     }
 }
