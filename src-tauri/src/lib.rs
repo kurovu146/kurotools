@@ -45,6 +45,10 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![
             commands::lookup,
+            commands::languages,
+            commands::lang_config,
+            commands::set_lang_config,
+            commands::recent_languages,
             commands::hide_popup,
             commands::set_dismiss_on_blur,
             commands::save_word,

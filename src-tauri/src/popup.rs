@@ -102,6 +102,13 @@ fn capture_now() -> CaptureEvent {
 ///
 /// Called once from `setup`, which already runs on the main thread.
 #[cfg(target_os = "macos")]
+// `tauri-nspanel` (pinned to its `v2` git branch) exposes `set_collection_behaviour`
+// typed against the `cocoa` crate's `NSWindowCollectionBehavior`, which that
+// version of `cocoa` marks deprecated in favour of `objc2-app-kit`. There is no
+// in-tree fix: swapping types here would require the dependency itself to
+// migrate. Suppressed rather than worked around, since a workaround would just
+// be a second, unofficial copy of the same bitflags.
+#[allow(deprecated)]
 pub fn configure_space_behavior(app: &AppHandle) {
     use tauri_nspanel::cocoa::appkit::NSWindowCollectionBehavior;
     use tauri_nspanel::WebviewWindowExt as _;
@@ -393,7 +400,6 @@ pub fn hide(app: &AppHandle) {
                 }
             }
         });
-        return;
     }
 
     #[cfg(not(target_os = "macos"))]

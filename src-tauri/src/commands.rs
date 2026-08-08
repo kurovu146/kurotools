@@ -4,6 +4,8 @@
 
 use tauri::{AppHandle, Manager, State};
 use tra_core::capture;
+use tra_core::config::LangConfig;
+use tra_core::lang::{self, Lang};
 use tra_core::model::Lookup;
 use tra_core::provider::GtxProvider;
 use tra_core::store::{HistoryEntry, SavedWord};
@@ -14,20 +16,28 @@ use crate::state::AppState;
 
 /// Look `text` up and return the three-pane result.
 ///
-/// Runs on the blocking pool: the provider makes two synchronous HTTP requests
-/// and holding the async runtime's thread for a round trip would freeze the
-/// popup that is already on screen.
+/// Runs on the blocking pool: the provider makes synchronous HTTP requests and
+/// holding the async runtime's thread for a round trip would freeze the popup
+/// that is already on screen.
 ///
 /// Infallible by contract — `GtxProvider::lookup` turns every failure into an
 /// "unavailable" result, so the frontend never needs a rejection path.
 #[tauri::command]
 pub async fn lookup(app: AppHandle, text: String) -> Lookup {
-    let result = tauri::async_runtime::spawn_blocking(move || GtxProvider::new().lookup(&text))
-        .await
-        // The only way to land here is a panic inside the provider. Returning
-        // the same "unavailable" shape keeps the frontend's single code path
-        // intact rather than surfacing a second kind of failure.
-        .unwrap_or_else(|_| Lookup::unavailable(String::new(), false));
+    // Read the config before leaving the async context: the store is behind a
+    // mutex and the blocking closure must not hold it across a round trip.
+    let config = app
+        .try_state::<AppState>()
+        .and_then(|state| state.store.lock().ok()?.lang_config().ok())
+        .unwrap_or_default();
+
+    let result =
+        tauri::async_runtime::spawn_blocking(move || GtxProvider::new().lookup(&text, &config))
+            .await
+            // The only way to land here is a panic inside the provider.
+            // Returning the same "unavailable" shape keeps the frontend's
+            // single code path intact.
+            .unwrap_or_else(|_| Lookup::unavailable(String::new(), false, config.target()));
 
     // History is a convenience, not part of the answer. A failing write must
     // never cost the user the lookup they are waiting on.
@@ -38,6 +48,59 @@ pub async fn lookup(app: AppHandle, text: String) -> Lookup {
     }
 
     result
+}
+
+// -- languages ---------------------------------------------------------------
+
+/// Every language code the endpoint accepts. The frontend turns these into
+/// display names itself with `Intl.DisplayNames`.
+#[tauri::command]
+pub fn languages() -> Vec<&'static str> {
+    lang::SUPPORTED.to_vec()
+}
+
+#[tauri::command]
+pub fn lang_config(state: State<'_, AppState>) -> Result<LangConfig, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.lang_config().map_err(|e| e.to_string())
+}
+
+/// Store a new language configuration and return what was actually stored.
+///
+/// The returned value can differ from what was asked for — `LangConfig::new`
+/// repairs collisions — so the frontend must render the response rather than
+/// its own optimistic guess, or the picker and the app disagree.
+#[tauri::command]
+pub fn set_lang_config(
+    state: State<'_, AppState>,
+    source: Option<String>,
+    target: String,
+    other: String,
+) -> Result<LangConfig, String> {
+    let parse =
+        |code: &str| Lang::from_code(code).ok_or_else(|| format!("unknown language: {code}"));
+
+    // `None` and `"auto"` both mean no source language.
+    let source = match source.as_deref() {
+        None | Some("auto") => None,
+        Some(code) => Some(parse(code)?),
+    };
+    let config = LangConfig::new(source, parse(&target)?, parse(&other)?);
+
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.set_lang_config(&config).map_err(|e| e.to_string())?;
+    if let Some(s) = config.source() {
+        let _ = store.push_recent_lang(s);
+    }
+    let _ = store.push_recent_lang(config.target());
+
+    Ok(config)
+}
+
+#[tauri::command]
+pub fn recent_languages(state: State<'_, AppState>) -> Result<Vec<Lang>, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.recent_langs().map_err(|e| e.to_string())
 }
 
 /// Dismiss the popup. Called on Esc.
