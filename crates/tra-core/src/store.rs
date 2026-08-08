@@ -161,9 +161,14 @@ impl Store {
         };
 
         let default = LangConfig::default();
-        // "auto" is stored explicitly so an unset source and a deliberately
-        // automatic one are distinguishable.
-        let source = match self.setting("lang.source")?.as_deref() {
+        // Degrades the same way `read` does: a DB error here must not stop
+        // the app from starting any more than one on `lang.target` would.
+        //
+        // "auto" is written explicitly by `set_lang_config` rather than the
+        // key being left absent, so that choosing a concrete source and then
+        // switching back to auto actually overwrites it — an absent key would
+        // leave the old concrete value in `settings` for this read to find.
+        let source = match self.setting("lang.source").ok().flatten().as_deref() {
             Some("auto") | None => None,
             Some(code) => Lang::from_code(code),
         };
@@ -186,12 +191,17 @@ impl Store {
     const RECENT_LANGS: usize = 5;
 
     /// The most recently chosen languages, newest first.
+    ///
+    /// Capped here as well as in `push_recent_lang`: `set_setting` is public,
+    /// so a longer stored string must not be able to hand back more than the
+    /// picker is designed to show.
     pub fn recent_langs(&self) -> Result<Vec<Lang>> {
         Ok(self
             .setting("lang.recents")?
             .unwrap_or_default()
             .split(',')
             .filter_map(Lang::from_code)
+            .take(Self::RECENT_LANGS)
             .collect())
     }
 
@@ -437,6 +447,18 @@ mod tests {
     }
 
     #[test]
+    fn an_auto_source_round_trips_too() {
+        // The concrete-source case above cannot catch a regression in the
+        // "auto" sentinel — the one path that maps a stored string back to
+        // `None` instead of a `Lang`.
+        let s = Store::open_in_memory().unwrap();
+        let c = LangConfig::default();
+        assert_eq!(c.source(), None, "test assumes the default source is auto");
+        s.set_lang_config(&c).unwrap();
+        assert_eq!(s.lang_config().unwrap(), c);
+    }
+
+    #[test]
     fn an_unreadable_stored_language_falls_back_to_the_default() {
         // A code that was valid in an older build, a hand-edited database, a
         // corrupted row: none of these may stop the app from starting.
@@ -470,6 +492,17 @@ mod tests {
             !recents.contains(&Lang::from_code("de").unwrap()),
             "the oldest fell off"
         );
+    }
+
+    #[test]
+    fn recent_langs_caps_even_a_directly_stored_longer_list() {
+        // The cap has to hold on read, not just when written through
+        // `push_recent_lang` — `set_setting` is public, so nothing stops a
+        // longer value ending up in `lang.recents` some other way.
+        let s = Store::open_in_memory().unwrap();
+        let codes = ["de", "ja", "es", "fr", "it", "ru", "pt"];
+        s.set_setting("lang.recents", &codes.join(",")).unwrap();
+        assert_eq!(s.recent_langs().unwrap().len(), 5);
     }
 
     #[test]
@@ -511,10 +544,13 @@ mod tests {
         // ALTER TABLE ADD COLUMN has no IF NOT EXISTS. Without the pragma guard
         // this throws "duplicate column name" on the second open, which means
         // every launch after the first.
-        let dir = std::env::temp_dir().join(format!("tra-migrate-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("twice.db");
-        let _ = std::fs::remove_file(&path);
+        //
+        // `tempfile::tempdir()` rather than a plain `remove_file` at the end:
+        // the `TempDir` guard cleans up on `Drop`, including when an assert
+        // above panics, so a failing run never leaves `twice.db` behind. Same
+        // pattern as `opening_the_same_file_twice_preserves_the_data` above.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("twice.db");
 
         let first = Store::open(&path).unwrap();
         first.save_word("idempotent").unwrap();
@@ -522,7 +558,5 @@ mod tests {
 
         let second = Store::open(&path).expect("second open must not fail");
         assert!(second.is_saved("idempotent").unwrap());
-
-        let _ = std::fs::remove_file(&path);
     }
 }
