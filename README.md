@@ -27,6 +27,16 @@ repeatedly" and the translation reads "bình thường", the mismatch is visible
 That pane is free and always will be. It is the reason to use this over a
 browser tab.
 
+### Which languages have definitions
+
+The definition pane is filled from Google's dictionary data, which covers far
+fewer languages than translation does. Measured: **English, Spanish, French,
+German, Italian, Russian and Arabic** return definitions. Chinese, Japanese,
+Korean, Vietnamese, Thai, Hindi and most others return none, and the pane is
+hidden rather than shown empty.
+
+Translation itself works for every language in the picker.
+
 ## Requirements
 
 - **macOS** 10.15+ — needs Accessibility permission (see below)
@@ -40,6 +50,7 @@ browser tab.
 |---|---|
 | **Hotkey** | `Cmd+Shift+D` on macOS, `Ctrl+Shift+D` elsewhere |
 | **Dismiss** | press the hotkey again; `Esc` and click-away also work when the popup has focus |
+| **Languages** | click either half of the `AUTO → VIETNAMESE` label under the entry |
 | **Tray icon** | Show, and Quit |
 | **Also** | type directly into the popup's search box |
 
@@ -142,7 +153,7 @@ On **GNOME/Wayland** specifically, PRIMARY cannot be read (no
 ```bash
 bun install
 bun run tauri dev          # run
-cargo test                 # 47 tests, fully offline
+cargo test                 # 106 tests, fully offline
 cargo test -- --ignored    # the one test that hits the live Google endpoint
 bun run tauri build        # bundle
 ```
