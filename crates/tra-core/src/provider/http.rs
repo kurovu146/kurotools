@@ -69,6 +69,10 @@ impl GtxProvider {
 
         let body = self.fetch(&initial, &source);
         let first = FirstPass {
+            // A response that arrived and said nothing looks identical to no
+            // response at all once parsed, and the planner has to tell them
+            // apart to avoid spending a second timeout on a dead endpoint.
+            responded: body.is_some(),
             detected: body.as_deref().and_then(gtx::parse_detected),
             translation: body.as_deref().and_then(gtx::parse_translation),
             definitions: body
@@ -270,6 +274,34 @@ mod tests {
         Server { base, seen }
     }
 
+    /// A listener that accepts, logs, and hangs up without answering. What a
+    /// dead endpoint looks like to `fetch` — a request that yields no body —
+    /// but countable, and without making the suite wait out a real timeout.
+    fn serve_silence() -> Server {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { continue };
+
+                let mut request_line = String::new();
+                if BufReader::new(&stream)
+                    .read_line(&mut request_line)
+                    .is_err()
+                {
+                    continue;
+                }
+                log.lock().unwrap().push(request_line);
+                // Dropped here, unanswered.
+            }
+        });
+
+        Server { base, seen }
+    }
+
     fn auto_vi() -> LangConfig {
         LangConfig::default()
     }
@@ -293,6 +325,21 @@ mod tests {
             Lang::VI,
             "a failed lookup still reports what it aimed at"
         );
+    }
+
+    #[test]
+    fn a_first_request_that_never_answers_is_not_followed_by_a_second() {
+        // The timeout budget is per request, so a follow-up fired at an
+        // endpoint that just failed to answer doubles how long the popup shows
+        // nothing — five seconds becomes ten. `idempotent` is the input that
+        // would otherwise plan the fallback-dictionary request.
+        let s = serve_silence();
+        let out = GtxProvider::with_endpoint(&s.base).lookup("idempotent", &auto_vi());
+
+        assert_eq!(s.count(), 1, "requests made: {:?}", s.lines());
+        assert!(out.translation.is_none());
+        assert!(out.definitions.is_empty());
+        assert_eq!(out.source, "idempotent");
     }
 
     #[test]
@@ -335,6 +382,20 @@ mod tests {
         assert!(!out.definitions.is_empty());
         assert_eq!(out.definition_lang, Some(Lang::EN));
         assert_eq!(out.target_lang, Lang::VI, "the retry moved the target");
+
+        // The two labels disagree, on purpose and by different routes:
+        // `source_lang` is whatever detection claimed (F2: `idempotent` reports
+        // Latin), while `definition_lang` comes from the echo, which is a fact
+        // about the response rather than a guess about the input. So the UI
+        // labels the source pane "Latin" and the definition pane "English" for
+        // one word. Pinned rather than fixed — the echo is the more reliable
+        // of the two, and overwriting `source_lang` with it would throw away
+        // what the endpoint actually said.
+        assert_eq!(
+            out.source_lang,
+            Lang::from_code("la"),
+            "detection is reported verbatim, even when the echo disagrees"
+        );
     }
 
     #[test]
@@ -457,6 +518,10 @@ mod tests {
             !out.definitions.is_empty(),
             "live endpoint returned no definitions"
         );
+        // Definitions arriving is not the same as definitions being readable:
+        // an upstream move of the gloss field would return the right number of
+        // empty entries, and nothing else in the suite would notice.
+        assert!(out.definitions.iter().all(|d| !d.gloss.is_empty()));
 
         // A non-English pair, so per-language drift surfaces too. This is the
         // measured F1 claim: one request, both panes, gloss in German.

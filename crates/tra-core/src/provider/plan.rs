@@ -21,6 +21,13 @@ pub struct Request {
 /// What the first response yielded. The pure input to [`followups`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FirstPass {
+    /// Whether a response arrived at all.
+    ///
+    /// Distinct from "arrived but said nothing useful". Every field below is
+    /// empty in both cases, so without this flag the planner cannot tell a
+    /// dead network from a word with no dictionary entry — and would answer
+    /// the first by spending a second timeout to learn the same thing.
+    pub responded: bool,
     pub detected: Option<Lang>,
     pub translation: Option<String>,
     pub definitions: Vec<Definition>,
@@ -65,6 +72,16 @@ pub fn initial_request(config: &LangConfig, source: &str) -> Option<Request> {
 
 /// What still needs asking after the first response.
 pub fn followups(config: &LangConfig, source: &str, first: &FirstPass) -> Followups {
+    // Nothing came back, so there is nothing to rescue. Both follow-ups below
+    // are answers to a *specific* shortcoming of a response that arrived; with
+    // no response they would fire into the same dead endpoint and spend a
+    // second full timeout to learn what the first already established. The
+    // popup would show nothing for twice as long, and this file's whole
+    // premise is that a slow answer is worse than an honest "unavailable".
+    if !first.responded {
+        return Followups::default();
+    }
+
     let echoed = is_no_op(source, first.translation.as_deref());
 
     // Only when the source was auto. With `sl` pinned, an empty `md` means
@@ -147,8 +164,12 @@ mod tests {
         Lang::from_code(code).expect("test uses a supported code")
     }
 
+    /// A first pass that **responded**. Every case below except the dead-network
+    /// one is about what a response contained, so responding is the default and
+    /// silence is opted into explicitly.
     fn first_pass(translation: Option<&str>, definitions: usize) -> FirstPass {
         FirstPass {
+            responded: true,
             detected: None,
             translation: translation.map(str::to_owned),
             definitions: (0..definitions)
@@ -275,10 +296,42 @@ mod tests {
 
     #[test]
     fn a_missing_translation_is_not_a_no_op() {
-        // The network died. That is "unavailable", not "already in the target"
-        // — retrying into another language would not help.
+        // A response arrived but no translation could be read out of it — a
+        // shape change, or a 200 carrying junk. That is "unavailable", not
+        // "already in the target", so retrying into another language would not
+        // help. (The network having died outright is the test below.)
         let f = followups(&LangConfig::default(), "idempotent", &first_pass(None, 0));
         assert!(f.retranslate.is_none());
+    }
+
+    #[test]
+    fn a_first_pass_that_never_responded_plans_no_follow_ups() {
+        // A dead network must cost one timeout, not two.
+        let config = LangConfig::default();
+
+        // An echo, so the responding baseline plans *both* follow-ups —
+        // otherwise an arm could be suppressed by something other than the
+        // guard and the test would still pass.
+        let responded = first_pass(Some("idempotent"), 0);
+        let baseline = followups(&config, "idempotent", &responded);
+        assert!(
+            baseline.definition.is_some(),
+            "the baseline must exercise the definition arm"
+        );
+        assert!(
+            baseline.retranslate.is_some(),
+            "the baseline must exercise the retranslate arm"
+        );
+
+        let silent = FirstPass {
+            responded: false,
+            ..responded
+        };
+        assert_eq!(
+            followups(&config, "idempotent", &silent),
+            Followups::default(),
+            "a first pass that never answered must plan nothing at all"
+        );
     }
 
     // -- the no-op rule ---------------------------------------------------
