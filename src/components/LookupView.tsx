@@ -126,7 +126,10 @@ function PairButton({
       onClick={onClick}
       title={title}
       aria-label={title}
-      className={`rounded px-0.5 uppercase hover:bg-hover hover:text-fg-dim ${
+      // focus-visible repeats the hover treatment rather than adding a ring
+      // colour the panel does not otherwise have. The native outline is left
+      // in place under it — this tint alone is subtle at 10px.
+      className={`rounded px-0.5 uppercase hover:bg-hover hover:text-fg-dim focus-visible:bg-hover focus-visible:text-fg-dim ${
         uncertain ? "italic" : ""
       }`}
     >

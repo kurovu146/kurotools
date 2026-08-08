@@ -7,19 +7,22 @@ import { AUTO, languageName, languages, recentLanguages } from "../lang";
  * `fixed` rather than inline on purpose: the window sizes itself to a measured
  * inner element (see useHeightFitsContent), so a list in the normal flow would
  * grow the panel every time the picker opened and it would never shrink back.
- * The overlay is rendered as a sibling of that measured element, never a child.
+ * The overlay is rendered as a sibling of that measured element, never a child;
+ * the window is held at full height while it is open instead.
+ *
+ * Dismissal is App's job, not a prop here: Escape has to work from wherever
+ * focus is, including behind this overlay, so the only handler is the
+ * window-level one.
  */
 export function LanguagePicker({
   selected,
   includeAuto,
   onPick,
-  onDismiss,
 }: {
   selected: string;
   /** Only the source side offers auto-detect. */
   includeAuto: boolean;
   onPick: (code: string) => void;
-  onDismiss: () => void;
 }) {
   const [all, setAll] = useState<string[]>([]);
   const [recents, setRecents] = useState<string[]>([]);
@@ -56,25 +59,12 @@ export function LanguagePicker({
   return (
     <div
       className="fixed inset-0 z-10 flex flex-col bg-scrim"
-      onMouseDown={(e) => {
-        // The panel drags from anywhere; the picker must not move the window.
-        e.stopPropagation();
-        // And focus stays in the search field: Escape is only scoped to the
-        // picker while a key event starts inside it, so letting a click on the
-        // list or the backdrop strand focus on <body> would make the next
-        // Escape hide the whole popup. Clicks still fire — only the focus
-        // shift is suppressed — and the field itself keeps its caret.
-        if (e.target !== inputRef.current) e.preventDefault();
-      }}
-      // Escape is handled here rather than on the input so it also works after
-      // the pointer has moved focus onto one of the list buttons. Stopping
-      // propagation keeps it away from the window-level handler, which hides
-      // the whole popup: the first press must close the picker only.
-      onKeyDown={(e) => {
-        if (e.key !== "Escape") return;
-        e.stopPropagation();
-        onDismiss();
-      }}
+      // The panel drags from anywhere; the picker must not move the window.
+      // Escape is deliberately *not* handled here: this overlay has no focus
+      // trap, so one Shift+Tab puts focus on the buttons behind it and any
+      // handler scoped to this subtree stops firing. App decides it instead,
+      // from `picking`, which holds wherever focus happens to be.
+      onMouseDown={(e) => e.stopPropagation()}
     >
       <input
         ref={inputRef}
@@ -97,7 +87,10 @@ export function LanguagePicker({
             <button
               onClick={() => onPick(code)}
               aria-current={code === selected}
-              className={`flex w-full items-baseline gap-2 px-3.5 py-1 text-left text-[13px] hover:bg-hover ${
+              // focus-visible mirrors hover rather than drawing a ring: it is
+              // the highlight this panel already uses to say "this row", and
+              // without it tabbing through the list moves nothing visible.
+              className={`flex w-full items-baseline gap-2 px-3.5 py-1 text-left text-[13px] hover:bg-hover focus-visible:bg-hover ${
                 code === selected ? "font-medium text-fg" : "text-fg-dim"
               }`}
             >

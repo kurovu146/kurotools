@@ -23,7 +23,9 @@ export default function App() {
   const [lastText, setLastText] = useState("");
 
   useSystemTheme();
-  const contentRef = useHeightFitsContent<HTMLDivElement>();
+  // The picker is an overlay outside the measured element, so it cannot size
+  // the window itself; hold the panel open at full height while it is up.
+  const contentRef = useHeightFitsContent<HTMLDivElement>(picking !== null);
 
   useEffect(() => {
     // Only the pair label needs this, and it renders "Auto" until it arrives —
@@ -95,16 +97,26 @@ export default function App() {
   );
 
   // Esc dismisses. Bound to the window rather than an element so it works
-  // whatever the user last clicked. The picker stops Escape reaching this
-  // while it is open, so the first press closes the picker and the second
-  // closes the popup.
+  // whatever the user last clicked.
+  //
+  // The picker is peeled off here rather than by a handler inside it: that
+  // overlay has no focus trap, and it renders after the content in DOM order,
+  // so a single Shift+Tab lands focus on the buttons behind it. Any handler
+  // scoped to the overlay's subtree would stop firing at that point and the
+  // next Escape would take the whole popup with the picker still on screen.
+  // Deciding from `picking` holds wherever focus is.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") void hidePopup();
+      if (e.key !== "Escape") return;
+      if (picking) {
+        setPicking(null);
+        return;
+      }
+      void hidePopup();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [picking]);
 
   // The search box only appears when there is nothing to read. The system
   // panel has no input at all, and once a result is on screen the field is
@@ -183,7 +195,6 @@ export default function App() {
           }
           includeAuto={picking === "source"}
           onPick={(code) => void pick(picking, code)}
-          onDismiss={() => setPicking(null)}
         />
       )}
     </main>
