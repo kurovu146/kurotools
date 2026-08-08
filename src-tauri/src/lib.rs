@@ -111,7 +111,10 @@ pub fn run() {
                     // popup is shown *without* activating, so "follows window
                     // active state" would render it permanently inactive.
                     Some(NSVisualEffectState::Active),
-                    Some(12.0),
+                    // No radius here: the content view is masked as a whole
+                    // (see popup::round_corners), and a second rounded shape
+                    // inside that one only puts a pale seam along the curve.
+                    None,
                 ) {
                     eprintln!("tra: vibrancy unavailable, using a solid background ({e})");
                 }

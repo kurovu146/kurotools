@@ -139,6 +139,54 @@ pub fn configure_space_behavior(app: &AppHandle) {
     // Last, because `set_style_mask` above is what breaks the transparency
     // this restores.
     sync_appearance(&window);
+    round_corners(&window);
+}
+
+/// Radius of the panel's corners, in points.
+#[cfg(target_os = "macos")]
+const CORNER_RADIUS: f64 = 12.0;
+
+/// Clip everything in the window to the panel's rounded shape.
+///
+/// Rounding in CSS instead leaves two stacked rounded rectangles — the
+/// translucent scrim over the vibrancy view — and their anti-aliased edges do
+/// not cancel. Along the curve the scrim only half-covers, so the blur
+/// underneath leaks through at full strength as a pale outline. It is
+/// invisible over a dark backdrop and obvious over a bright one, which is why
+/// it survived several rounds of looking at screenshots.
+///
+/// One mask on the content view clips every layer at once: a single edge, with
+/// nothing behind it but the desktop. The vibrancy view is given no radius of
+/// its own for the same reason.
+///
+/// **Must run on the main thread.**
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)] // see sync_appearance
+pub fn round_corners(window: &WebviewWindow) {
+    use tauri_nspanel::objc::runtime::Object;
+    use tauri_nspanel::objc::{msg_send, sel, sel_impl};
+
+    let Ok(ns_window) = window.ns_window() else {
+        return;
+    };
+
+    // SAFETY: main thread only, and the window outlives this call.
+    unsafe {
+        let ns_window = ns_window as *mut Object;
+        let content: *mut Object = msg_send![ns_window, contentView];
+        if content.is_null() {
+            return;
+        }
+
+        let _: () = msg_send![content, setWantsLayer: true];
+        let layer: *mut Object = msg_send![content, layer];
+        if layer.is_null() {
+            return;
+        }
+
+        let _: () = msg_send![layer, setCornerRadius: CORNER_RADIUS];
+        let _: () = msg_send![layer, setMasksToBounds: true];
+    }
 }
 
 /// Make the window agree with the system about how it should look: the right
