@@ -6,5 +6,6 @@
 
 pub mod gtx;
 pub mod http;
+pub mod plan;
 
 pub use http::GtxProvider;
