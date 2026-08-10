@@ -501,7 +501,7 @@ mod tests {
 
     /// The only test that touches the network. `#[ignore]`d so the suite stays
     /// offline and deterministic; run it deliberately with
-    /// `cargo test -p tra-core -- --ignored` to check whether the unofficial
+    /// `cargo test -p ktranslate-core -- --ignored` to check whether the unofficial
     /// endpoint still behaves the way the fixtures captured.
     ///
     /// Fixtures prove the parser handles the shapes we recorded. Only this

@@ -417,7 +417,7 @@ mod tests {
         // Guards the migration being re-runnable: CREATE TABLE without
         // IF NOT EXISTS would make the second open fail outright.
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("nested").join("tra.db");
+        let path = dir.path().join("nested").join("ktranslate.db");
 
         {
             let s = Store::open(&path).unwrap();

@@ -45,8 +45,8 @@ pub fn init(app: &App) -> tauri::Result<()> {
     // than starting without one.
     if let Err(e) = app.global_shortcut().register(shortcut) {
         eprintln!(
-            "tra: could not register the global shortcut ({e}). \
-             Use the tray icon, or `tra --show`, until it is changed in settings."
+            "ktranslate: could not register the global shortcut ({e}). \
+             Use the tray icon, or `ktranslate-app --show`, until it is changed in settings."
         );
     }
 

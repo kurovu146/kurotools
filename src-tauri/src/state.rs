@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+use ktranslate_core::store::Store;
 use tauri::{AppHandle, Manager};
-use tra_core::store::Store;
 
 /// The database, behind a mutex.
 ///
@@ -49,5 +49,12 @@ fn default_database_path(app: &AppHandle) -> Result<PathBuf, String> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("no app data directory: {e}"))?;
-    Ok(dir.join("tra.db"))
+    // This path moved with the rename from `tra`: the bundle identifier is
+    // what `app_data_dir()` resolves against, so `com.kurovu.tra/tra.db`
+    // became `com.kurovu.ktranslate/ktranslate.db`. There is no in-app
+    // migration — an existing install keeps its old directory and starts
+    // empty here. Only one install ever existed and its database was copied
+    // across by hand; if that ever stops being true, this is where a
+    // migration would go.
+    Ok(dir.join("ktranslate.db"))
 }

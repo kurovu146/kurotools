@@ -1,4 +1,4 @@
-//! Enforces the architectural rule from the design doc: `tra-core` must stay
+//! Enforces the architectural rule from the design doc: `ktranslate-core` must stay
 //! framework-free.
 //!
 //! Without a test, "don't import tauri" is a comment nobody reads at 2am when
@@ -14,7 +14,7 @@
 const MANIFEST: &str = include_str!("../Cargo.toml");
 
 #[test]
-fn tra_core_does_not_depend_on_tauri() {
+fn ktranslate_core_does_not_depend_on_tauri() {
     let mut offenders = Vec::new();
 
     for (n, raw) in MANIFEST.lines().enumerate() {
@@ -36,7 +36,7 @@ fn tra_core_does_not_depend_on_tauri() {
 
     assert!(
         offenders.is_empty(),
-        "tra-core must not depend on tauri — that is the whole point of the crate \
+        "ktranslate-core must not depend on tauri — that is the whole point of the crate \
          split (see the design doc, Architecture / Structure). Found:\n{}",
         offenders.join("\n")
     );

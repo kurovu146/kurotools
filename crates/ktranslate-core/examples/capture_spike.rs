@@ -1,6 +1,6 @@
 //! Manual spike for selection capture. Run it, select text somewhere, wait.
 //!
-//!     cargo run -p tra-core --example capture_spike
+//!     cargo run -p ktranslate-core --example capture_spike
 //!
 //! This is the riskiest slice of the whole product isolated from everything
 //! else: no UI, no translation, no storage, no hotkey. It answers three
@@ -20,19 +20,19 @@ const COUNTDOWN: u64 = 5;
 /// Sentinel placed on the clipboard before capture. If capture restores
 /// correctly this exact string is back afterwards; anything else means the
 /// user's real clipboard would have been destroyed.
-const CANARY: &str = "tra-spike-canary-do-not-lose-me";
+const CANARY: &str = "ktranslate-spike-canary-do-not-lose-me";
 
 fn main() {
-    println!("tra — selection capture spike\n");
+    println!("KTranslate — selection capture spike\n");
 
     #[cfg(target_os = "macos")]
     {
-        if tra_core::capture::has_accessibility_permission() {
+        if ktranslate_core::capture::has_accessibility_permission() {
             println!("Accessibility: granted");
         } else {
             println!("Accessibility: NOT granted — asking now.");
             println!("Grant it in System Settings, then re-run.\n");
-            tra_core::capture::request_accessibility_permission();
+            ktranslate_core::capture::request_accessibility_permission();
             // Without the permission, CGEvent::post silently does nothing, so
             // continuing would only produce a confusing "nothing was selected".
             return;
@@ -62,7 +62,7 @@ fn main() {
     println!("\r  capturing now...        \n");
 
     let started = Instant::now();
-    let result = tra_core::capture::capture_selection();
+    let result = ktranslate_core::capture::capture_selection();
     let elapsed = started.elapsed();
 
     match result {

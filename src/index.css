@@ -13,11 +13,11 @@
    page than over a dark terminal, while a translucent white or black tracks
    it. */
 :root {
-  --tra-fg: rgba(0, 0, 0, 0.88);
-  --tra-fg-dim: rgba(0, 0, 0, 0.52);
-  --tra-fg-faint: rgba(0, 0, 0, 0.36);
-  --tra-rule: rgba(0, 0, 0, 0.13);
-  --tra-hover: rgba(0, 0, 0, 0.07);
+  --ktranslate-fg: rgba(0, 0, 0, 0.88);
+  --ktranslate-fg-dim: rgba(0, 0, 0, 0.52);
+  --ktranslate-fg-faint: rgba(0, 0, 0, 0.36);
+  --ktranslate-rule: rgba(0, 0, 0, 0.13);
+  --ktranslate-hover: rgba(0, 0, 0, 0.07);
   /* The scrim over the blur, and the reason it is this heavy.
 
      The popup is summoned over arbitrary windows, so the vibrancy layer
@@ -37,32 +37,32 @@
      The blur is still doing visible work at a fifth of the composite, which
      is about where the system panel sits too — it is far more solid than it
      first appears. */
-  --tra-scrim: rgba(255, 255, 255, 0.84);
+  --ktranslate-scrim: rgba(255, 255, 255, 0.84);
 }
 
 :root.dark {
-  --tra-fg: rgba(255, 255, 255, 0.92);
-  --tra-fg-dim: rgba(255, 255, 255, 0.55);
-  --tra-fg-faint: rgba(255, 255, 255, 0.38);
-  --tra-rule: rgba(255, 255, 255, 0.14);
-  --tra-hover: rgba(255, 255, 255, 0.1);
-  --tra-scrim: rgba(10, 10, 12, 0.8);
+  --ktranslate-fg: rgba(255, 255, 255, 0.92);
+  --ktranslate-fg-dim: rgba(255, 255, 255, 0.55);
+  --ktranslate-fg-faint: rgba(255, 255, 255, 0.38);
+  --ktranslate-rule: rgba(255, 255, 255, 0.14);
+  --ktranslate-hover: rgba(255, 255, 255, 0.1);
+  --ktranslate-scrim: rgba(10, 10, 12, 0.8);
 }
 
 /* Exposed as Tailwind colours so components say `text-fg-dim`, and light and
    dark stay defined in exactly one place above rather than as a `dark:` twin
    on every element. */
 @theme {
-  --color-fg: var(--tra-fg);
-  --color-fg-dim: var(--tra-fg-dim);
-  --color-fg-faint: var(--tra-fg-faint);
-  --color-rule: var(--tra-rule);
-  --color-hover: var(--tra-hover);
+  --color-fg: var(--ktranslate-fg);
+  --color-fg-dim: var(--ktranslate-fg-dim);
+  --color-fg-faint: var(--ktranslate-fg-faint);
+  --color-rule: var(--ktranslate-rule);
+  --color-hover: var(--ktranslate-hover);
   /* The picker overlay reuses the panel's own derived alpha rather than a
      second hand-tuned one: composed over the scrim already painted on #root
      the two land around 0.97 opaque, which hides the entry underneath over
      any backdrop instead of only the one it was eyeballed against. */
-  --color-scrim: var(--tra-scrim);
+  --color-scrim: var(--ktranslate-scrim);
 }
 
 /* The window is transparent so the native vibrancy layer shows through; the
@@ -81,7 +81,7 @@ body,
      stacks a second anti-aliased curve over the vibrancy view's, and the two
      do not cancel: the blur leaks along the edge as a pale outline. */
   overflow: hidden;
-  background: var(--tra-scrim);
+  background: var(--ktranslate-scrim);
 }
 
 body {
@@ -92,7 +92,7 @@ body {
   /* Vietnamese diacritics stack above and below the baseline; the default
      line-height clips them at small sizes. */
   line-height: 1.5;
-  color: var(--tra-fg);
+  color: var(--ktranslate-fg);
   -webkit-font-smoothing: antialiased;
 }
 

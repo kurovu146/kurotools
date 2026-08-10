@@ -10,7 +10,7 @@ pub const MAIN_WINDOW: &str = "main";
 
 /// Event the frontend listens for. Carries either captured text or the reason
 /// there wasn't any.
-pub const CAPTURE_EVENT: &str = "tra://capture";
+pub const CAPTURE_EVENT: &str = "ktranslate://capture";
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -63,7 +63,7 @@ pub fn show_with_selection(app: &AppHandle) {
 }
 
 fn capture_now() -> CaptureEvent {
-    use tra_core::capture::{self, CaptureError};
+    use ktranslate_core::capture::{self, CaptureError};
 
     if !capture::has_accessibility_permission() {
         return CaptureEvent::NeedsPermission;
@@ -120,7 +120,7 @@ pub fn configure_space_behavior(app: &AppHandle) {
     let panel = match window.to_panel() {
         Ok(panel) => panel,
         Err(e) => {
-            eprintln!("tra: could not convert the window to an NSPanel: {e:?}");
+            eprintln!("ktranslate: could not convert the window to an NSPanel: {e:?}");
             return;
         }
     };
@@ -224,7 +224,7 @@ pub fn sync_appearance(window: &WebviewWindow) {
     let ns_window = match window.ns_window() {
         Ok(handle) => handle as *mut Object,
         Err(e) => {
-            eprintln!("tra: no NSWindow to set the appearance on ({e})");
+            eprintln!("ktranslate: no NSWindow to set the appearance on ({e})");
             return;
         }
     };
@@ -259,7 +259,7 @@ pub fn sync_appearance(window: &WebviewWindow) {
 pub fn configure_space_behavior(app: &AppHandle) {
     if let Some(window) = main_window(app) {
         if let Err(e) = window.set_visible_on_all_workspaces(true) {
-            eprintln!("tra: could not make the window follow workspaces: {e}");
+            eprintln!("ktranslate: could not make the window follow workspaces: {e}");
         }
     }
 }
@@ -293,12 +293,12 @@ fn show_panel(app: &AppHandle) {
                 panel.order_front_regardless();
                 panel.make_key_window();
             }
-            Err(e) => eprintln!("tra: no panel registered for {MAIN_WINDOW:?}: {e:?}"),
+            Err(e) => eprintln!("ktranslate: no panel registered for {MAIN_WINDOW:?}: {e:?}"),
         }
     });
 
     if let Err(e) = dispatched {
-        eprintln!("tra: could not reach the main thread to show the panel: {e}");
+        eprintln!("ktranslate: could not reach the main thread to show the panel: {e}");
     }
 }
 
@@ -312,7 +312,7 @@ pub fn show(app: &AppHandle) {
         // Silent failure here presents as "the hotkey does nothing", with no
         // error anywhere, so it is worth a line on stderr.
         eprintln!(
-            "tra: no window labelled {MAIN_WINDOW:?}; labels present: {:?}",
+            "ktranslate: no window labelled {MAIN_WINDOW:?}; labels present: {:?}",
             app.webview_windows().keys().collect::<Vec<_>>()
         );
         return;
@@ -323,7 +323,7 @@ pub fn show(app: &AppHandle) {
     // Best-effort: failing to position is not a reason to withhold the window.
     // It would simply open wherever it last was.
     if let Err(e) = position_at_cursor(app, &window) {
-        eprintln!("tra: could not position the window: {e}");
+        eprintln!("ktranslate: could not position the window: {e}");
     }
     // macOS goes through the panel, which shows and takes keys without making
     // this application active — see configure_space_behavior.
@@ -333,10 +333,10 @@ pub fn show(app: &AppHandle) {
     #[cfg(not(target_os = "macos"))]
     {
         if let Err(e) = window.show() {
-            eprintln!("tra: could not show the window: {e}");
+            eprintln!("ktranslate: could not show the window: {e}");
         }
         if let Err(e) = window.set_focus() {
-            eprintln!("tra: could not focus the window: {e}");
+            eprintln!("ktranslate: could not focus the window: {e}");
         }
     }
 }

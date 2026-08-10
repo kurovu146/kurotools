@@ -1,7 +1,7 @@
 //! The Tauri shell.
 //!
 //! Deliberately thin: window, tray, hotkey, IPC. Everything worth testing
-//! lives in `tra-core`, which knows nothing about Tauri.
+//! lives in `ktranslate-core`, which knows nothing about Tauri.
 
 mod commands;
 mod hotkey;
@@ -14,7 +14,7 @@ use tauri::Manager;
 /// Passing this to an already-running instance summons the popup.
 ///
 /// The documented escape hatch for Wayland compositors where the global
-/// shortcut never fires: the user binds `tra --show` in their own compositor
+/// shortcut never fires: the user binds `ktranslate-app --show` in their own compositor
 /// config and gets the same behaviour the built-in hotkey would have given.
 const SHOW_FLAG: &str = "--show";
 
@@ -71,7 +71,7 @@ pub fn run() {
                 Ok(s) => {
                     app.manage(s);
                 }
-                Err(e) => eprintln!("tra: storage unavailable, continuing without it ({e})"),
+                Err(e) => eprintln!("ktranslate: storage unavailable, continuing without it ({e})"),
             }
 
             // A menu-bar utility, not an app you switch to: no Dock icon, and
@@ -120,7 +120,7 @@ pub fn run() {
                     // inside that one only puts a pale seam along the curve.
                     None,
                 ) {
-                    eprintln!("tra: vibrancy unavailable, using a solid background ({e})");
+                    eprintln!("ktranslate: vibrancy unavailable, using a solid background ({e})");
                 }
             }
 
@@ -145,7 +145,7 @@ pub fn run() {
                 // Escape hatch for diagnosis: dismiss-on-blur makes it
                 // impossible to observe the window with an external tool,
                 // because the tool taking focus is itself what hides it.
-                if std::env::var_os("TRA_NO_BLUR_HIDE").is_some() {
+                if std::env::var_os("KTRANSLATE_NO_BLUR_HIDE").is_some() {
                     return;
                 }
                 let dismiss = window

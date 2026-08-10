@@ -8,7 +8,7 @@ export type CaptureEvent =
   | { kind: "needsPermission" };
 
 /** Emitted by the shell after the hotkey fires. Must match `CAPTURE_EVENT`. */
-const CAPTURE_EVENT = "tra://capture";
+const CAPTURE_EVENT = "ktranslate://capture";
 
 export function onCapture(handler: (e: CaptureEvent) => void) {
   return listen<CaptureEvent>(CAPTURE_EVENT, (event) => handler(event.payload));

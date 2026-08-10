@@ -2065,6 +2065,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "ktranslate-app"
+version = "0.1.0"
+dependencies = [
+ "ktranslate-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-nspanel",
+ "tauri-plugin-autostart",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "window-vibrancy 0.8.0",
+]
+
+[[package]]
+name = "ktranslate-core"
+version = "0.1.0"
+dependencies = [
+ "accessibility-sys",
+ "arboard",
+ "core-foundation",
+ "core-graphics 0.25.0",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.19",
+ "ureq",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "libappindicator"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4305,40 +4339,6 @@ name = "tower-service"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
-
-[[package]]
-name = "tra-app"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-nspanel",
- "tauri-plugin-autostart",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tra-core",
- "window-vibrancy 0.8.0",
-]
-
-[[package]]
-name = "tra-core"
-version = "0.1.0"
-dependencies = [
- "accessibility-sys",
- "arboard",
- "core-foundation",
- "core-graphics 0.25.0",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.19",
- "ureq",
- "windows 0.62.2",
-]
 
 [[package]]
 name = "tracing"

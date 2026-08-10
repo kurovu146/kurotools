@@ -1,15 +1,15 @@
 //! The IPC surface. Thin by design — every command here should be a couple of
-//! lines that hand off to `tra-core`, so the logic stays testable without a
+//! lines that hand off to `ktranslate-core`, so the logic stays testable without a
 //! GUI and the shell stays swappable.
 
+use ktranslate_core::capture;
+use ktranslate_core::config::LangConfig;
+use ktranslate_core::lang::{self, Lang};
+use ktranslate_core::model::Lookup;
+use ktranslate_core::provider::GtxProvider;
+use ktranslate_core::store::{HistoryEntry, SavedWord};
+use ktranslate_core::tts;
 use tauri::{AppHandle, Manager, State};
-use tra_core::capture;
-use tra_core::config::LangConfig;
-use tra_core::lang::{self, Lang};
-use tra_core::model::Lookup;
-use tra_core::provider::GtxProvider;
-use tra_core::store::{HistoryEntry, SavedWord};
-use tra_core::tts;
 
 use crate::popup;
 use crate::state::AppState;

@@ -1,13 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
-/** Mirrors `tra_core::store::SavedWord`. */
+/** Mirrors `ktranslate_core::store::SavedWord`. */
 export interface SavedWord {
   word: string;
   /** Unix seconds. */
   saved_at: number;
 }
 
-/** Mirrors `tra_core::store::HistoryEntry`. */
+/** Mirrors `ktranslate_core::store::HistoryEntry`. */
 export interface HistoryEntry {
   id: number;
   source: string;

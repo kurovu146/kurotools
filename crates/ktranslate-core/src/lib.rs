@@ -1,4 +1,4 @@
-//! `tra-core` — the framework-free core of Tra.
+//! `ktranslate-core` — the framework-free core of KTranslate.
 //!
 //! Deliberately knows nothing about Tauri, windows, or the frontend. Everything
 //! interesting lives here so it can be tested without a GUI harness, and so

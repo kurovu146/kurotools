@@ -1,12 +1,10 @@
-# Tra
+# KTranslate
 
 Look up any word you select, without leaving what you are reading.
 
 Select text in any application, press the hotkey, and a small popup shows three
 things: the text you selected, its **English definition**, and its **Vietnamese
 translation**.
-
-> **`tra` is a working codename**, not the final product name.
 
 ## Why two panes instead of one
 
@@ -59,15 +57,15 @@ Press `★` to save a word, `►` to hear it pronounced by the system voice.
 ## macOS: the Accessibility permission
 
 Reading the text you have selected in *another* application is not something
-macOS lets an app do directly. Tra does what every tool in this category does:
-it synthesizes `Cmd+C`, reads the clipboard, and **puts your clipboard back
-exactly as it was**. That requires Accessibility access.
+macOS lets an app do directly. KTranslate does what every tool in this category
+does: it synthesizes `Cmd+C`, reads the clipboard, and **puts your clipboard
+back exactly as it was**. That requires Accessibility access.
 
 The first launch explains this and opens System Settings to the right pane. The
 grant is detected without restarting the app.
 
-**Declining is fine.** Tra still works — copy the text first, then press the
-hotkey. That path needs no permission at all.
+**Declining is fine.** KTranslate still works — copy the text first, then
+press the hotkey. That path needs no permission at all.
 
 ## macOS: native fullscreen apps
 
@@ -123,8 +121,8 @@ binding. The synthesized ⌘C reaches the terminal emulator, which has no
 selection of its own, so nothing is copied.
 
 In tmux, use your normal copy key first — with the common vi-mode binding
-that's `y` — then press the hotkey. Tra reads the clipboard and works exactly
-as usual.
+that's `y` — then press the hotkey. KTranslate reads the clipboard and works
+exactly as usual.
 
 Everywhere else (browsers, PDFs, editors, chat apps) select-then-hotkey works;
 measured at ~100ms.
@@ -136,7 +134,7 @@ Global shortcuts on Wayland depend on your compositor implementing the XDG
 in your compositor's own config instead:
 
 ```
-tra --show
+ktranslate-app --show
 ```
 
 That summons the popup on the already-running instance and behaves identically.
@@ -146,7 +144,7 @@ text already fills the PRIMARY selection, so nothing is synthesized and your
 clipboard is never touched.
 
 On **GNOME/Wayland** specifically, PRIMARY cannot be read (no
-`wlr-data-control`), so Tra falls back to the clipboard — copy first.
+`wlr-data-control`), so KTranslate falls back to the clipboard — copy first.
 
 ## Development
 
@@ -161,10 +159,10 @@ bun run tauri build        # bundle
 ### Layout
 
 ```
-crates/tra-core/   pure Rust: capture, providers, model, storage, TTS.
-                   Must never depend on tauri — enforced by a test.
-src-tauri/         the Tauri shell: window, tray, hotkey, IPC.
-src/               React + Tailwind frontend.
+crates/ktranslate-core/   pure Rust: capture, providers, model, storage, TTS.
+                          Must never depend on tauri — enforced by a test.
+src-tauri/                the Tauri shell: window, tray, hotkey, IPC.
+src/                      React + Tailwind frontend.
 ```
 
 The core is framework-free on purpose. It keeps the logic testable without a
@@ -174,7 +172,7 @@ rather than the app.
 ### Verify the riskiest part on its own
 
 ```bash
-cargo run -p tra-core --example capture_spike
+cargo run -p ktranslate-core --example capture_spike
 ```
 
 Select text in another application during the countdown. It reports what it

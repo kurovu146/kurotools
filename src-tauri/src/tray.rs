@@ -1,9 +1,9 @@
 //! The menu-bar / system-tray icon.
 //!
-//! Tra has no Dock presence and no window in the task switcher — it is
+//! KTranslate has no Dock presence and no window in the task switcher — it is
 //! summoned by a hotkey and dismissed on Esc. The tray is therefore the only
 //! persistent, discoverable way to reach it, which makes Quit here the app's
-//! only exit. Without it a user who wants Tra gone has to reach for Activity
+//! only exit. Without it a user who wants KTranslate gone has to reach for Activity
 //! Monitor.
 
 use tauri::menu::{Menu, MenuItem};
@@ -13,8 +13,8 @@ use tauri::App;
 use crate::popup;
 
 pub fn init(app: &App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Tra", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Tra", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show KTranslate", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit KTranslate", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
     TrayIconBuilder::new()

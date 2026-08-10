@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 /** The absence of a source language, as the backend spells it. */
 export const AUTO = "auto";
 
-/** Mirrors `tra_core::config::LangConfig`. */
+/** Mirrors `ktranslate_core::config::LangConfig`. */
 export interface LangConfig {
   /** `null` means auto-detect. */
   source: string | null;

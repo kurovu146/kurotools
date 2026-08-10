@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-/** Mirrors `tra_core::model::Definition`. */
+/** Mirrors `ktranslate_core::model::Definition`. */
 export interface Definition {
   part_of_speech: string;
   /** Absent for most words. Present for domain-specific senses. */
@@ -8,7 +8,7 @@ export interface Definition {
   gloss: string;
 }
 
-/** Mirrors `tra_core::model::Lookup`. */
+/** Mirrors `ktranslate_core::model::Lookup`. */
 export interface Lookup {
   source: string;
   /** The source text was cut before being sent, and the UI must say so. */

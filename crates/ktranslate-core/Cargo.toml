@@ -4,7 +4,7 @@
 # tests/no_tauri_dep.rs enforces this.
 
 [package]
-name = "tra-core"
+name = "ktranslate-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

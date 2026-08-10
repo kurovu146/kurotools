@@ -59,11 +59,11 @@ export function PermissionGate({
 
   return (
     <div className="flex flex-col gap-3 p-4 text-[13px]">
-      <h1 className="text-[15px] font-semibold">Let Tra read your selection</h1>
+      <h1 className="text-[15px] font-semibold">Let KTranslate read your selection</h1>
 
       <p className="text-fg-dim">
         To look up the text you highlight in other apps, macOS requires
-        Accessibility access. Tra uses it for one thing only: copying your
+        Accessibility access. KTranslate uses it for one thing only: copying your
         current selection when you press the hotkey. Your clipboard is put back
         exactly as it was.
       </p>
@@ -89,7 +89,7 @@ export function PermissionGate({
       </div>
 
       <p className="text-[12px] text-fg-faint">
-        Without access, Tra still works — copy the text first, then press the
+        Without access, KTranslate still works — copy the text first, then press the
         hotkey.
       </p>
     </div>
