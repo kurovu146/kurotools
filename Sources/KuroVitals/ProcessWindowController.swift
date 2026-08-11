@@ -2,7 +2,7 @@ import AppKit
 import SystemStats
 
 @MainActor
-final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate {
+final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation {
     private enum Column {
         static let name = NSUserInterfaceItemIdentifier("name")
         static let pid = NSUserInterfaceItemIdentifier("pid")
@@ -21,7 +21,7 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
     private let searchField = NSSearchField()
     private let refreshButton = NSButton()
     private let killButton = NSButton()
-    private let tableView = NSTableView()
+    private let tableView = ProcessTableView()
     private let statusLabel = NSTextField(labelWithString: "")
 
     private var refreshTimer: Timer?
@@ -190,6 +190,12 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         tableView.sortDescriptors = [NSSortDescriptor(key: "cpu", ascending: false)]
 
+        let contextMenu = NSMenu()
+        let copyItem = NSMenuItem(title: "Copy PID", action: #selector(copySelectedPID(_:)), keyEquivalent: "c")
+        copyItem.target = self
+        contextMenu.addItem(copyItem)
+        tableView.menu = contextMenu
+
         addColumn(identifier: Column.name, title: "Tên", width: 430, minWidth: 240, sortKey: "name")
         addColumn(identifier: Column.pid, title: "PID", width: 90, minWidth: 70, sortKey: "pid")
         addColumn(identifier: Column.ports, title: "Ports", width: 190, minWidth: 120, sortKey: "ports")
@@ -331,6 +337,21 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
         let row = tableView.selectedRow
         guard row >= 0, row < model.rows.count else { return nil }
         return model.rows[row]
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(copySelectedPID(_:)) else { return true }
+        return selectedProcess != nil
+    }
+
+    @objc func copySelectedPID(_ sender: Any?) {
+        guard let process = selectedProcess else { return }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("\(process.pid)", forType: .string)
+        // The next sample (~3s) puts the process count back.
+        statusLabel.stringValue = "Đã copy PID \(process.pid)"
     }
 
     @objc private func killSelectedProcess(_ sender: NSButton) {
