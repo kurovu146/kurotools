@@ -11,7 +11,13 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
         static let memory = NSUserInterfaceItemIdentifier("memory")
     }
 
+    /// Sampling cadence. `ps` is cheap; `lsof` is not, so ports are rescanned
+    /// only every few ticks (~9s) — listening ports barely move.
+    private static let refreshSeconds: TimeInterval = 3.0
+    private static let portsRefreshEveryTicks = 3
+
     private let sampler: ProcessSampler
+    private let samplerQueue = DispatchQueue(label: "com.kurovitals.process-sampler", qos: .utility)
     private let searchField = NSSearchField()
     private let refreshButton = NSButton()
     private let killButton = NSButton()
@@ -19,8 +25,11 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
     private let statusLabel = NSTextField(labelWithString: "")
 
     private var refreshTimer: Timer?
-    private var allProcesses: [RunningProcess] = []
-    private var filteredProcesses: [RunningProcess] = []
+    private var model = ProcessTableModel()
+    private var tickCount = 0
+    private var isSampling = false
+    private var isRestoringSelection = false
+    private var isShowingAlert = false
 
     init(sampler: ProcessSampler = ProcessSampler()) {
         self.sampler = sampler
@@ -51,7 +60,7 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         startRefreshTimer()
-        reloadProcesses()
+        reloadProcesses(forcePorts: true)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -60,14 +69,14 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
-        filteredProcesses.count
+        model.rows.count
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let tableColumn, row < filteredProcesses.count else { return nil }
+        guard let tableColumn, row < model.rows.count else { return nil }
         let cell = tableView.makeView(withIdentifier: tableColumn.identifier, owner: self) as? NSTableCellView
             ?? makeCell(identifier: tableColumn.identifier)
-        let process = filteredProcesses[row]
+        let process = model.rows[row]
 
         switch tableColumn.identifier {
         case Column.name:
@@ -98,11 +107,17 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !isRestoringSelection else { return }
+        // Selecting a row freezes the order; deselecting lets the next tick sort again.
+        let row = tableView.selectedRow
+        model.selectedPID = row >= 0 && row < model.rows.count ? model.rows[row].pid : nil
         updateKillButton()
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        applyFilterAndSort()
+        applySortDescriptor()
+        model.rebuild()
+        reloadTable()
     }
 
     private func buildInterface() {
@@ -180,6 +195,7 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
         addColumn(identifier: Column.ports, title: "Ports", width: 190, minWidth: 120, sortKey: "ports")
         addColumn(identifier: Column.cpu, title: "CPU", width: 100, minWidth: 80, sortKey: "cpu")
         addColumn(identifier: Column.memory, title: "RAM", width: 130, minWidth: 100, sortKey: "memory")
+        applySortDescriptor()
     }
 
     private func addColumn(identifier: NSUserInterfaceItemIdentifier,
@@ -221,100 +237,100 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
 
     private func startRefreshTimer() {
         refreshTimer?.invalidate()
-        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.refreshSeconds, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadProcesses() }
         }
-        timer.tolerance = 0.3
+        timer.tolerance = 0.5
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
     }
 
     @objc private func refreshClicked(_ sender: NSButton) {
-        reloadProcesses()
+        reloadProcesses(forcePorts: true)
     }
 
     @objc private func searchChanged(_ sender: NSSearchField) {
-        applyFilterAndSort()
+        model.query = searchField.stringValue
+        model.rebuild()
+        reloadTable()
     }
 
-    private func reloadProcesses() {
-        do {
-            allProcesses = try sampler.listProcesses()
-            applyFilterAndSort()
-        } catch {
+    private func applySortDescriptor() {
+        guard let descriptor = tableView.sortDescriptors.first else { return }
+        model.sortKey = descriptor.key.flatMap(ProcessSortKey.init(rawValue:)) ?? .cpu
+        model.ascending = descriptor.ascending
+    }
+
+    /// Samples off the main thread — `ps` plus `lsof` would otherwise stall the
+    /// UI for long enough to make clicking a row unreliable.
+    private func reloadProcesses(forcePorts: Bool = false) {
+        // A modal kill confirmation runs the timer in .common mode; don't move
+        // the table out from under the alert.
+        guard !isShowingAlert, !isSampling else { return }
+        isSampling = true
+
+        let refreshPorts = forcePorts || tickCount % Self.portsRefreshEveryTicks == 0
+        tickCount += 1
+        let sampler = sampler
+
+        samplerQueue.async { [weak self] in
+            let result = Result { try sampler.listProcesses(refreshPorts: refreshPorts) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.apply(result) }
+            }
+        }
+    }
+
+    private func apply(_ result: Result<[RunningProcess], Error>) {
+        isSampling = false
+        switch result {
+        case .success(let processes):
+            model.refresh(with: processes)
+            reloadTable()
+        case .failure(let error):
             statusLabel.stringValue = "Không đọc được danh sách tiến trình: \(error.localizedDescription)"
         }
     }
 
-    private func applyFilterAndSort() {
-        let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if query.isEmpty {
-            filteredProcesses = allProcesses
-        } else {
-            filteredProcesses = allProcesses.filter { process in
-                process.name.localizedCaseInsensitiveContains(query)
-                    || process.command.localizedCaseInsensitiveContains(query)
-                    || String(process.pid).contains(query)
-                    || process.ports.contains { String($0).contains(query) }
-            }
-        }
-
-        sortFilteredProcesses()
+    /// `reloadData` only preserves the selected *index*, which after a re-sort
+    /// points at some other process — re-anchor the selection on its PID.
+    private func reloadTable() {
+        let selectedPID = model.selectedPID
         tableView.reloadData()
-        updateKillButton()
-        updateStatus(query: query)
-    }
 
-    private func sortFilteredProcesses() {
-        guard let descriptor = tableView.sortDescriptors.first else { return }
-        let ascending = descriptor.ascending
-
-        switch descriptor.key {
-        case "name":
-            filteredProcesses.sort {
-                ascending
-                    ? $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-                    : $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedDescending
+        if let selectedPID, let row = model.index(of: selectedPID) {
+            if tableView.selectedRow != row {
+                isRestoringSelection = true
+                tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                isRestoringSelection = false
             }
-        case "pid":
-            filteredProcesses.sort { ascending ? $0.pid < $1.pid : $0.pid > $1.pid }
-        case "ports":
-            filteredProcesses.sort {
-                let lhs = $0.ports.first ?? Int.max
-                let rhs = $1.ports.first ?? Int.max
-                return ascending ? lhs < rhs : lhs > rhs
-            }
-        case "memory":
-            filteredProcesses.sort {
-                ascending
-                    ? $0.residentMemoryBytes < $1.residentMemoryBytes
-                    : $0.residentMemoryBytes > $1.residentMemoryBytes
-            }
-        default:
-            filteredProcesses.sort {
-                ascending
-                    ? $0.cpuPercent < $1.cpuPercent
-                    : $0.cpuPercent > $1.cpuPercent
-            }
+        } else if tableView.selectedRow >= 0 || selectedPID != nil {
+            // The selected process is gone (killed or filtered out).
+            model.selectedPID = nil
+            tableView.deselectAll(nil)
         }
+
+        updateKillButton()
+        updateStatus()
     }
 
     private func updateKillButton() {
         killButton.isEnabled = selectedProcess != nil
     }
 
-    private func updateStatus(query: String) {
+    private func updateStatus() {
+        let query = model.query.trimmingCharacters(in: .whitespacesAndNewlines)
         if query.isEmpty {
-            statusLabel.stringValue = "\(filteredProcesses.count) tiến trình"
+            statusLabel.stringValue = "\(model.rows.count) tiến trình"
         } else {
-            statusLabel.stringValue = "\(filteredProcesses.count) kết quả cho \"\(query)\""
+            statusLabel.stringValue = "\(model.rows.count) kết quả cho \"\(query)\""
         }
     }
 
     private var selectedProcess: RunningProcess? {
         let row = tableView.selectedRow
-        guard row >= 0, row < filteredProcesses.count else { return nil }
-        return filteredProcesses[row]
+        guard row >= 0, row < model.rows.count else { return nil }
+        return model.rows[row]
     }
 
     @objc private func killSelectedProcess(_ sender: NSButton) {
@@ -327,11 +343,17 @@ final class ProcessWindowController: NSWindowController, NSWindowDelegate, NSTab
         alert.addButton(withTitle: "Kill")
         alert.addButton(withTitle: "Cancel")
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        isShowingAlert = true
+        let response = alert.runModal()
+        isShowingAlert = false
+        guard response == .alertFirstButtonReturn else { return }
 
         do {
             try terminateProcess(pid: process.pid)
-            reloadProcesses()
+            // The row is about to disappear — drop the freeze and re-sort.
+            model.selectedPID = nil
+            tableView.deselectAll(nil)
+            reloadProcesses(forcePorts: true)
         } catch {
             let errorAlert = NSAlert()
             errorAlert.messageText = "Không kill được \(process.name)"

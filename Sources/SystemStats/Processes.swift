@@ -47,30 +47,31 @@ public enum ProcessKillError: Error, LocalizedError {
     }
 }
 
-public final class ProcessSampler {
+/// Not thread-safe: the port cache means one instance belongs to one serial queue.
+public final class ProcessSampler: @unchecked Sendable {
+    private var cachedPorts: [Int32: [Int]] = [:]
+
     public init() {}
 
-    public func listProcesses() throws -> [RunningProcess] {
-        let portsByPID = openPortsByPID()
-        let processes = try listBaseProcesses()
+    /// - Parameter refreshPorts: `lsof` costs a few hundred ms and listening
+    ///   ports rarely change, so callers polling on a timer can reuse the last
+    ///   scan for a few ticks. Row order is decided by `ProcessTableModel`.
+    public func listProcesses(refreshPorts: Bool = true) throws -> [RunningProcess] {
+        if refreshPorts {
+            cachedPorts = openPortsByPID()
+        }
+        let portsByPID = cachedPorts
 
-        return processes
-            .map { process in
-                RunningProcess(
-                    pid: process.pid,
-                    name: process.name,
-                    command: process.command,
-                    cpuPercent: process.cpuPercent,
-                    residentMemoryBytes: process.residentMemoryBytes,
-                    ports: portsByPID[process.pid] ?? []
-                )
-            }
-            .sorted {
-                if $0.cpuPercent == $1.cpuPercent {
-                    return $0.residentMemoryBytes > $1.residentMemoryBytes
-                }
-                return $0.cpuPercent > $1.cpuPercent
-            }
+        return try listBaseProcesses().map { process in
+            RunningProcess(
+                pid: process.pid,
+                name: process.name,
+                command: process.command,
+                cpuPercent: process.cpuPercent,
+                residentMemoryBytes: process.residentMemoryBytes,
+                ports: portsByPID[process.pid] ?? []
+            )
+        }
     }
 
     private func listBaseProcesses() throws -> [RunningProcess] {
