@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+/* Dark mode is driven by a class on <html>, set from Tauri's own window theme
+   (see useSystemTheme). The webview does not reliably report
+   prefers-color-scheme through a transparent, vibrancy-backed window — it
+   reported light on a dark system, which rendered the panel as a flat grey
+   slab instead of a dark translucent one. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* One place for every colour in the panel. Written as alpha over whatever the
+   vibrancy layer produces, not as fixed greys: the background is a live blur
+   of the desktop, so a solid `neutral-500` reads differently over a bright
+   page than over a dark terminal, while a translucent white or black tracks
+   it. */
+:root {
+  --ktranslate-fg: rgba(0, 0, 0, 0.88);
+  --ktranslate-fg-dim: rgba(0, 0, 0, 0.52);
+  --ktranslate-fg-faint: rgba(0, 0, 0, 0.36);
+  --ktranslate-rule: rgba(0, 0, 0, 0.13);
+  --ktranslate-hover: rgba(0, 0, 0, 0.07);
+  /* The scrim over the blur, and the reason it is this heavy.
+
+     The popup is summoned over arbitrary windows, so the vibrancy layer
+     underneath it can come back any colour at all. Every lighter value tried
+     here looked right against whatever happened to be on screen at the time
+     and then washed out over the next thing — so the alpha is derived rather
+     than eyeballed.
+
+     Compositing alpha α of the scrim over an unknown backdrop B leaves the
+     panel anywhere in `α·S + (1-α)·B`. Taking the worst case for each theme —
+     pure black behind the light panel, pure white behind the dark one — and
+     requiring 7:1 against the body text puts the floor at α ≈ 0.71 dark and
+     α ≈ 0.66 light. These sit above both, and a measured worst case really
+     does turn up in ordinary use: over a white window the dark panel lands
+     within a shade of that bound every time.
+
+     The blur is still doing visible work at a fifth of the composite, which
+     is about where the system panel sits too — it is far more solid than it
+     first appears. */
+  --ktranslate-scrim: rgba(255, 255, 255, 0.84);
+}
+
+:root.dark {
+  --ktranslate-fg: rgba(255, 255, 255, 0.92);
+  --ktranslate-fg-dim: rgba(255, 255, 255, 0.55);
+  --ktranslate-fg-faint: rgba(255, 255, 255, 0.38);
+  --ktranslate-rule: rgba(255, 255, 255, 0.14);
+  --ktranslate-hover: rgba(255, 255, 255, 0.1);
+  --ktranslate-scrim: rgba(10, 10, 12, 0.8);
+}
+
+/* Exposed as Tailwind colours so components say `text-fg-dim`, and light and
+   dark stay defined in exactly one place above rather than as a `dark:` twin
+   on every element. */
+@theme {
+  --color-fg: var(--ktranslate-fg);
+  --color-fg-dim: var(--ktranslate-fg-dim);
+  --color-fg-faint: var(--ktranslate-fg-faint);
+  --color-rule: var(--ktranslate-rule);
+  --color-hover: var(--ktranslate-hover);
+  /* The picker overlay reuses the panel's own derived alpha rather than a
+     second hand-tuned one: composed over the scrim already painted on #root
+     the two land around 0.97 opaque, which hides the entry underneath over
+     any backdrop instead of only the one it was eyeballed against. */
+  --color-scrim: var(--ktranslate-scrim);
+}
+
+/* The window is transparent so the native vibrancy layer shows through; the
+   rounded card is drawn here. Any opaque background covers the blur. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+#root {
+  /* Deliberately square. The rounding is done once, natively, by masking the
+     window's content view (see popup::round_corners) — rounding here as well
+     stacks a second anti-aliased curve over the vibrancy view's, and the two
+     do not cancel: the blur leaks along the edge as a pale outline. */
+  overflow: hidden;
+  background: var(--ktranslate-scrim);
+}
+
+body {
+  /* The system Look Up panel is set in a serif face; matching it is most of
+     why this reads as a dictionary rather than a web page. New York is the
+     macOS system serif, with ui-serif covering newer versions. */
+  font-family: ui-serif, "New York", Georgia, "Times New Roman", serif;
+  /* Vietnamese diacritics stack above and below the baseline; the default
+     line-height clips them at small sizes. */
+  line-height: 1.5;
+  color: var(--ktranslate-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The panel is its own drag handle (see startWindowDrag), so most of it must
+   not behave like text: without this a drag leaves a half-highlighted headword
+   behind as the window moves, and the I-beam suggests a selection that dragging
+   will not make. The parts that really are selectable opt back in, which also
+   makes the cursor an honest signal of what a drag will do. */
+body {
+  cursor: default;
+  user-select: none;
+}
+
+[data-selectable] {
+  cursor: text;
+  user-select: text;
+}
+
+/* Scrollbars are noise inside a small translucent panel. Hidden, not
+   disabled — the wheel still scrolls a definition too long for the panel. */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
