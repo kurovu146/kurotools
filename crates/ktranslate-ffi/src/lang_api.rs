@@ -2,6 +2,7 @@ use crate::json_out;
 use crate::state::{self, cstr_to_string};
 use ktranslate_core::config::LangConfig;
 use ktranslate_core::lang::{self, Lang};
+use ktranslate_core::store::StoreError;
 use std::os::raw::c_char;
 
 #[no_mangle]
@@ -44,13 +45,21 @@ pub extern "C" fn kt_set_lang_config(
         };
 
         let config = LangConfig::new(source_lang, target_lang, other_lang);
-        state::with_store(|s| {
-            let _ = s.set_lang_config(&config);
+        // `set_lang_config`'s failure must surface — silently swallowing it
+        // (as this used to) would let the UI believe a write succeeded when
+        // nothing was actually persisted. `push_recent_lang` stays
+        // best-effort, matching the Tauri command this replaces.
+        let write: Option<Result<(), StoreError>> = state::with_store(|s| {
+            s.set_lang_config(&config)?;
             if let Some(src) = config.source() {
                 let _ = s.push_recent_lang(src);
             }
             let _ = s.push_recent_lang(config.target());
+            Ok(())
         });
+        if let Some(Err(e)) = write {
+            return serde_json::json!({ "error": e.to_string() });
+        }
         serde_json::to_value(config).unwrap_or(serde_json::Value::Null)
     })
 }
@@ -87,6 +96,8 @@ mod tests {
         // LangConfig::new tự sửa xung đột, nên giá trị trả về có thể khác giá
         // trị yêu cầu. UI phải render câu trả lời, không phải phỏng đoán lạc
         // quan của chính nó.
+        let _guard = state::TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        state::reset_for_test();
         let dir = tempfile::tempdir().unwrap();
         let db = CString::new(dir.path().join("l.db").to_str().unwrap()).unwrap();
         crate::kt_init(db.as_ptr());
@@ -109,6 +120,8 @@ mod tests {
 
     #[test]
     fn auto_and_empty_both_mean_no_source_language() {
+        let _guard = state::TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        state::reset_for_test();
         let dir = tempfile::tempdir().unwrap();
         let db = CString::new(dir.path().join("a.db").to_str().unwrap()).unwrap();
         crate::kt_init(db.as_ptr());
@@ -123,5 +136,30 @@ mod tests {
                 "source {s:?} should store as null, got {v}"
             );
         }
+    }
+
+    #[test]
+    fn a_failed_write_is_reported_not_swallowed() {
+        // Delete the store's backing directory out from under the open
+        // connection: SQLite can still read through the existing file
+        // handle, but any write needs to create a rollback journal in that
+        // directory first and fails with "attempt to write a readonly
+        // database". Cheapest reliable way to force set_lang_config to fail
+        // without depending on OS permission semantics (which root ignores).
+        let _guard = state::TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        state::reset_for_test();
+        let dir = tempfile::tempdir().unwrap();
+        let db = CString::new(dir.path().join("w.db").to_str().unwrap()).unwrap();
+        crate::kt_init(db.as_ptr());
+        drop(dir);
+
+        let de = CString::new("de").unwrap();
+        let vi = CString::new("vi").unwrap();
+        let en = CString::new("en").unwrap();
+        let v = take(kt_set_lang_config(de.as_ptr(), vi.as_ptr(), en.as_ptr()));
+        assert!(
+            v.get("error").is_some(),
+            "a failed write must surface as an error, got {v}"
+        );
     }
 }

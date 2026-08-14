@@ -6,6 +6,7 @@
 mod lang_api;
 mod lookup_api;
 mod state;
+mod store_api;
 
 use std::ffi::CString;
 use std::os::raw::c_char;
@@ -71,6 +72,8 @@ mod tests {
 
     #[test]
     fn init_opens_a_store_and_is_idempotent() {
+        let _guard = state::TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        state::reset_for_test();
         let dir = tempfile::tempdir().unwrap();
         let c = CString::new(dir.path().join("t.db").to_str().unwrap()).unwrap();
         assert!(kt_init(c.as_ptr()));
