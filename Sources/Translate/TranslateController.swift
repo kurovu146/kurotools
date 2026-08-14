@@ -129,4 +129,18 @@ public final class TranslateController {
             return nil
         }
     }
+
+    /// Đối xứng với `HotkeyMonitor.deinit` (unregister Carbon hotkey +
+    /// event handler). Chưa rò rỉ thật trong M1 — `TranslateController` sống
+    /// suốt vòng đời app, đúng một instance, không bao giờ bị deinit trước
+    /// khi process thoát — nhưng Task 20 sắp khoá cứng giả định đó vào
+    /// `AppDelegate`, và thiếu đường dọn dẹp ở đây trong khi `HotkeyMonitor`
+    /// (cùng file, cùng loại tài nguyên hệ thống) đã có là một bất đối xứng
+    /// đáng vá trước khi ai đó tạo ra một instance thứ hai.
+    deinit {
+        if let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+        }
+        hotkey?.unregister()
+    }
 }
