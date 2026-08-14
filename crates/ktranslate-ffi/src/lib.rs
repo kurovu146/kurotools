@@ -7,6 +7,7 @@ mod lang_api;
 mod lookup_api;
 mod state;
 mod store_api;
+mod system_api;
 
 use std::ffi::CString;
 use std::os::raw::c_char;
