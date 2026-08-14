@@ -16,8 +16,16 @@ import SwiftUI
 /// trước (kích thước cửa sổ ta đã gán lần trước) — đo nhầm chỗ đó thì panel
 /// chỉ phình ra chứ không bao giờ co lại theo nội dung ngắn hơn, vì phép đo
 /// đang đo lại chính kết quả của lần đo trước.
+///
+/// `layoutSubtreeIfNeeded()` trước khi đọc `frame`: layout của AppKit là
+/// deferred, không đồng bộ, nên nếu nội dung SwiftUI vừa đổi (bản dịch mới
+/// tới) trong cùng tick mà hàm này được gọi ngay sau đó, `frame` còn mang giá
+/// trị CŨ — panel sẽ trễ một nhịp so với nội dung. Một hàm tên là "measure"
+/// phải tự đảm bảo thứ nó đo đã layout xong, không thể để caller nhớ gọi
+/// layout trước khi đo — ràng buộc ngầm kiểu đó rồi sẽ bị quên.
 public func measuredHeight(of view: NSView, clampedTo range: ClosedRange<CGFloat>) -> CGFloat {
-    min(max(view.frame.height, range.lowerBound), range.upperBound)
+    view.layoutSubtreeIfNeeded()
+    return min(max(view.frame.height, range.lowerBound), range.upperBound)
 }
 
 /// `NSHostingView` mà việc kéo panel chính là bản thân nó — popup không có

@@ -41,6 +41,11 @@ public final class PopupPanel {
         // `.popover`, không phải `.hudWindow` — hudWindow là khối xám cố định
         // của overlay volume/brightness, không đổi màu theo nền phía sau.
         vibrant.material = .popover
+        // `.behindWindow`, không phải `.withinWindow` — thứ cần blur là màn
+        // hình PHÍA SAU cửa sổ (desktop, app khác), không phải nội dung ngay
+        // trong window của chính mình. `.withinWindow` không blur được gì ở
+        // đó, và cả điểm tồn tại của một popup trong suốt là làm mờ đúng cái
+        // nền phía sau nó.
         vibrant.blendingMode = .behindWindow
         // Panel không-activate có thể không bao giờ trở thành "active" theo
         // nghĩa AppKit hiểu — ghim `.active` để vibrancy luôn render đúng
