@@ -3,6 +3,7 @@
 //! gì — mỗi lần tra vốn đã kèm một round-trip HTTP.
 #![allow(clippy::missing_safety_doc)]
 
+mod lang_api;
 mod lookup_api;
 mod state;
 

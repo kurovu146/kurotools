@@ -1,0 +1,127 @@
+use crate::json_out;
+use crate::state::{self, cstr_to_string};
+use ktranslate_core::config::LangConfig;
+use ktranslate_core::lang::{self, Lang};
+use std::os::raw::c_char;
+
+#[no_mangle]
+pub extern "C" fn kt_languages() -> *mut c_char {
+    json_out(|| serde_json::json!(lang::SUPPORTED))
+}
+
+#[no_mangle]
+pub extern "C" fn kt_lang_config() -> *mut c_char {
+    json_out(|| {
+        let config = state::with_store(|s| s.lang_config().unwrap_or_default()).unwrap_or_default();
+        serde_json::to_value(config).unwrap_or(serde_json::Value::Null)
+    })
+}
+
+/// `source` rỗng hoặc `"auto"` đều nghĩa là không có ngôn ngữ nguồn.
+#[no_mangle]
+pub extern "C" fn kt_set_lang_config(
+    source: *const c_char,
+    target: *const c_char,
+    other: *const c_char,
+) -> *mut c_char {
+    let (source, target, other) = (
+        cstr_to_string(source),
+        cstr_to_string(target),
+        cstr_to_string(other),
+    );
+    json_out(move || {
+        let source_lang = match source.as_str() {
+            "" | "auto" => None,
+            code => match Lang::from_code(code) {
+                Some(l) => Some(l),
+                None => return serde_json::json!({ "error": format!("unknown language: {code}") }),
+            },
+        };
+        let (Some(target_lang), Some(other_lang)) =
+            (Lang::from_code(&target), Lang::from_code(&other))
+        else {
+            return serde_json::json!({ "error": "unknown language" });
+        };
+
+        let config = LangConfig::new(source_lang, target_lang, other_lang);
+        state::with_store(|s| {
+            let _ = s.set_lang_config(&config);
+            if let Some(src) = config.source() {
+                let _ = s.push_recent_lang(src);
+            }
+            let _ = s.push_recent_lang(config.target());
+        });
+        serde_json::to_value(config).unwrap_or(serde_json::Value::Null)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn kt_recent_languages() -> *mut c_char {
+    json_out(|| {
+        let langs = state::with_store(|s| s.recent_langs().unwrap_or_default()).unwrap_or_default();
+        serde_json::to_value(langs).unwrap_or_else(|_| serde_json::json!([]))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::{CStr, CString};
+
+    fn take(ptr: *mut std::os::raw::c_char) -> serde_json::Value {
+        let s = unsafe { CStr::from_ptr(ptr) }.to_str().unwrap().to_owned();
+        crate::kt_string_free(ptr);
+        serde_json::from_str(&s).expect("FFI must always return valid JSON")
+    }
+
+    #[test]
+    fn languages_lists_codes_as_plain_strings() {
+        let v = take(kt_languages());
+        let arr = v.as_array().expect("expected an array");
+        assert!(arr.iter().any(|x| x == "en"));
+        assert!(arr.iter().any(|x| x == "vi"));
+    }
+
+    #[test]
+    fn set_lang_config_returns_what_was_actually_stored() {
+        // LangConfig::new tự sửa xung đột, nên giá trị trả về có thể khác giá
+        // trị yêu cầu. UI phải render câu trả lời, không phải phỏng đoán lạc
+        // quan của chính nó.
+        let dir = tempfile::tempdir().unwrap();
+        let db = CString::new(dir.path().join("l.db").to_str().unwrap()).unwrap();
+        crate::kt_init(db.as_ptr());
+
+        let de = CString::new("de").unwrap();
+        let vi = CString::new("vi").unwrap();
+        let en = CString::new("en").unwrap();
+        let v = take(kt_set_lang_config(de.as_ptr(), vi.as_ptr(), en.as_ptr()));
+        assert_eq!(v.get("target").and_then(|x| x.as_str()), Some("vi"));
+    }
+
+    #[test]
+    fn set_lang_config_rejects_an_unknown_code() {
+        let bad = CString::new("zzz").unwrap();
+        let vi = CString::new("vi").unwrap();
+        let en = CString::new("en").unwrap();
+        let v = take(kt_set_lang_config(bad.as_ptr(), vi.as_ptr(), en.as_ptr()));
+        assert!(v.get("error").is_some(), "expected an error payload, got {v}");
+    }
+
+    #[test]
+    fn auto_and_empty_both_mean_no_source_language() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = CString::new(dir.path().join("a.db").to_str().unwrap()).unwrap();
+        crate::kt_init(db.as_ptr());
+
+        let vi = CString::new("vi").unwrap();
+        let en = CString::new("en").unwrap();
+        for s in ["auto", ""] {
+            let src = CString::new(s).unwrap();
+            let v = take(kt_set_lang_config(src.as_ptr(), vi.as_ptr(), en.as_ptr()));
+            assert!(
+                v.get("source").map(|x| x.is_null()).unwrap_or(false),
+                "source {s:?} should store as null, got {v}"
+            );
+        }
+    }
+}

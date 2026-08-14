@@ -13,7 +13,10 @@ pub(crate) fn init(path: &Path) -> bool {
         return true;
     }
     match Store::open(path) {
-        Ok(store) => STORE.set(Mutex::new(store)).is_ok(),
+        // `set` losing the race to another thread is not a failure to open:
+        // the winner's store is already live and usable, so this call is the
+        // no-op the doc comment promises rather than a hard error.
+        Ok(store) => STORE.set(Mutex::new(store)).is_ok() || STORE.get().is_some(),
         Err(_) => false,
     }
 }
