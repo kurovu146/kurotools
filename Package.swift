@@ -27,6 +27,7 @@ let package = Package(
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("CoreFoundation"),
                 .linkedFramework("ApplicationServices"),
+                .linkedFramework("Carbon"),
             ]
         ),
         .testTarget(name: "SMCKitTests", dependencies: ["SMCKit"]),
