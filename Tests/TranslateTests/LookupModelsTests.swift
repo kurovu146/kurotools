@@ -58,4 +58,24 @@ final class LookupModelsTests: XCTestCase {
         // Mã lạ rơi về chính nó — thà hiện "zzz" còn hơn một ô trống.
         XCTAssertEqual(LanguageNames.name("zzz"), "zzz")
     }
+
+    func testLanguageNamesResolveLegacyAndCLDRGapCodesWithoutAHardcodedTable() {
+        // `iw` là mã ISO cũ Google vẫn dùng cho Hebrew; `bho` (Bhojpuri) là
+        // một mã CLDR "hiếm". Bản TS cũ (~/dev/ktranslate/src/lang.ts) cần
+        // bảng DISPLAY_ALIASES + FALLBACK_NAMES tay cho các mã này vì
+        // Intl.DisplayNames của trình duyệt không phủ hết. Đã ĐO trên máy
+        // này (task-8-report.md, phần "Đo LanguageNames"): Locale/CLDR của
+        // macOS đã phủ đủ toàn bộ 10 mã trong hai bảng đó — không mã nào
+        // rơi về chính nó — nên KHÔNG cần port hai bảng sang Swift.
+        XCTAssertEqual(LanguageNames.name("iw"), "Hebrew")
+        XCTAssertEqual(LanguageNames.name("bho"), "Bhojpuri")
+    }
+
+    func testLanguageNamesDisambiguateRegionQualifiedCodes() {
+        // Gap thật duy nhất đo được: `zh-CN` và `zh-TW` khác `target_lang`
+        // Rust trả về, nhưng `localizedString(forLanguageCode:)` bỏ mất
+        // phần vùng miền nên cả hai cùng ra "Chinese" — hai lựa chọn khác
+        // nhau trong picker hiện y hệt nhau, người dùng không phân biệt được.
+        XCTAssertNotEqual(LanguageNames.name("zh-CN"), LanguageNames.name("zh-TW"))
+    }
 }
