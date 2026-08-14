@@ -23,6 +23,7 @@ let package = Package(
             linkerSettings: [
                 .unsafeFlags(["-Lcrates/target/release", "-lktranslate_ffi"]),
                 .linkedFramework("AppKit"),
+                .linkedFramework("SwiftUI"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("CoreFoundation"),
                 .linkedFramework("ApplicationServices"),
