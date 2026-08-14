@@ -136,8 +136,14 @@ public final class VitalsController: NSObject, NSMenuDelegate {
             quit: #selector(quitApp))
 
         if !extraItems.isEmpty {
-            menu.addItem(.separator())
-            for item in extraItems { menu.addItem(item) }
+            // menuBar.populate() always ends with "Quit" as the last item —
+            // insert ahead of it instead of appending, so extra items read as
+            // part of the menu body (macOS convention keeps Quit last).
+            let quitIndex = menu.items.count - 1
+            menu.insertItem(.separator(), at: quitIndex)
+            for (offset, item) in extraItems.enumerated() {
+                menu.insertItem(item, at: quitIndex + 1 + offset)
+            }
         }
     }
 

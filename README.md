@@ -120,7 +120,7 @@ See `docs/superpowers/specs/` (design) and `docs/superpowers/spike-findings.md` 
 
 ```bash
 make build        # cargo build --release (Rust core), then swift build
-make test         # cargo test (Rust core, 123 tests), then swift test (45 tests)
+make test         # cargo test (Rust core, 123 tests), then swift test (65 tests)
 ```
 
 Always go through `make` — never call `swift build`/`swift test` directly. SwiftPM does not treat
