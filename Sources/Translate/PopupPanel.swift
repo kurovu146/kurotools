@@ -101,10 +101,29 @@ public final class PopupPanel {
         panel.appearance = NSApp.effectiveAppearance
 
         // KHÔNG BAO GIỜ activate: không `NSApp.activate`, không
-        // `makeKeyAndOrderFront`, không `NSWindow.show()`. Activation chính
-        // là thứ buộc macOS thoát khỏi Space fullscreen — popup sẽ xuất hiện
-        // bằng cách kéo người dùng ra khỏi thứ họ đang đọc.
+        // `makeKeyAndOrderFront` (bản GỘP hai bước làm một, cố tình tách ra
+        // hai lệnh riêng bên dưới để không ai đọc nhầm dòng nào "là cái
+        // activate"), không `NSWindow.show()`. Activation chính là thứ buộc
+        // macOS thoát khỏi Space fullscreen — popup sẽ xuất hiện bằng cách
+        // kéo người dùng ra khỏi thứ họ đang đọc.
         panel.orderFrontRegardless()
+
+        // `makeKeyWindow()` — TÁCH RIÊNG khỏi lệnh trên, cố tình hai lệnh
+        // chứ không gộp thành `makeKeyAndOrderFront:`. Đây KHÔNG phải một
+        // ngoại lệ của luật "không activate" — nó là đúng lý do
+        // `.nonactivatingPanel` (styleMask, `init`) tồn tại: cờ đó cho phép
+        // MỘT CỬA SỔ trở thành key (nhận keyDown/text input) MÀ KHÔNG kéo
+        // ứng dụng sở hữu nó lên foreground, không đổi app đang active,
+        // không thoát Space fullscreen của app khác — ba thứ `NSApp.activate`
+        // mới gây ra. Thiếu dòng này: ô nhập (`RootView`/`TextField`) không
+        // bao giờ nhận được ký tự gõ vào, và không sự kiện bàn phím nào của
+        // panel này (kể cả Escape mà `TranslateController` bắt bằng
+        // `NSEvent.addLocalMonitorForEvents`) từng tới được app — local
+        // monitor chỉ thấy sự kiện app ĐÃ nhận, và app không nhận được gì
+        // nếu không cửa sổ nào của nó là key. `orderFrontRegardless()` một
+        // mình chỉ lo phần "nhìn thấy trên màn hình", không lo phần "nhận
+        // được phím".
+        panel.makeKey()
     }
 
     public func hide() { panel.orderOut(nil) }
