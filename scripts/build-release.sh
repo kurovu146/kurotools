@@ -6,4 +6,4 @@ cd "$(dirname "$0")/.."
 # here would silently keep linking a stale Rust binary into the release build.
 make rust
 swift build -c release
-echo "Built: .build/release/KuroVitals and .build/release/kurovitals-helper"
+echo "Built: .build/release/KuroTools and .build/release/kurovitals-helper"
