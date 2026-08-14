@@ -36,7 +36,28 @@ public protocol TranslateBackend: AnyObject {
     func ttsAvailable() -> Bool
     func speak(_ text: String)
     func isSaved(_ word: String) -> Bool
+    /// Bản async của `isSaved` — để UI hỏi trạng thái lưu mà không chặn main
+    /// thread chờ nó. Có default bên dưới nên backend đồng bộ không cần tự
+    /// triển khai lại; test double nào cần dựng thứ tự trả lời đảo ngược
+    /// (xem `DeferredBackend` trong `SourceActionsTests`) thì tự override.
+    func isSavedAsync(_ word: String, completion: @escaping (Bool) -> Void)
     @discardableResult func setSaved(_ word: String, saved: Bool) -> Bool
+}
+
+extension TranslateBackend {
+    /// Mặc định: chạy `isSaved` đồng bộ trên background queue rồi trả kết quả
+    /// về main thread. `KTranslateBridge.isSaved` gọi HTTP nên không thể chạy
+    /// thẳng trên main thread mà không treo UI đang hiện popup — cùng lý do
+    /// `lookup` ở trên có `queue` riêng của nó. Nhờ default này,
+    /// `KTranslateBridge` không cần sửa gì để có bản async không chặn.
+    public func isSavedAsync(_ word: String, completion: @escaping (Bool) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let value = self.isSaved(word)
+            DispatchQueue.main.async {
+                completion(value)
+            }
+        }
+    }
 }
 
 /// Lớp DUY NHẤT được phép chạm vào con trỏ C. Mọi hàm copy chuỗi sang Swift rồi
