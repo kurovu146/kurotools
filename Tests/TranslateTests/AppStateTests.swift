@@ -38,8 +38,25 @@ final class AppStateTests: XCTestCase {
         XCTAssertNil(m.picking, "a stale picker would reopen over the new result")
     }
 
+    func testACaptureThatFindsNothingSelectedClearsAPendingPickerAndGoesIdle() {
+        let m = model(config: vi)
+        m.loadConfig()
+        m.picking = .source
+        m.query = "leftover query"
+        m.run("hello")   // move state away from .idle first, or the reset below proves nothing
+        m.handle(.empty)
+        XCTAssertNil(m.picking, "a stale picker would reopen over the idle screen")
+        XCTAssertEqual(m.state, .idle)
+        XCTAssertEqual(m.query, "")
+    }
+
     func testBlankTextGoesIdleNotLoading() {
         let m = model(config: nil)
+        m.run("hello")
+        // Must actually leave .idle first — .idle is also the initializer's
+        // default, so asserting the guard's *effect* requires starting
+        // somewhere else.
+        XCTAssertNotEqual(m.state, .idle)
         m.run("   ")
         XCTAssertEqual(m.state, .idle)
     }
@@ -48,6 +65,14 @@ final class AppStateTests: XCTestCase {
         let m = model(config: nil)
         m.handle(.needsPermission)
         XCTAssertEqual(m.state, .needsPermission)
+    }
+
+    func testNeedsPermissionOutcomeClearsAPendingPickerToo() {
+        let m = model(config: vi)
+        m.loadConfig()
+        m.picking = .target
+        m.handle(.needsPermission)
+        XCTAssertNil(m.picking, "a stale picker would reopen over the permission gate")
     }
 
     func testChangingLanguageReRunsTheSameTextWithoutRecapturing() {
@@ -59,5 +84,16 @@ final class AppStateTests: XCTestCase {
         m.pick(.target, code: "en")
         XCTAssertEqual(backend.lookupCount, before + 1, "should re-run the text already in hand")
         XCTAssertEqual(backend.storedConfig?.target, "en")
+    }
+
+    func testPickRendersWhatTheBackendActuallyStoredNotAnOptimisticGuess() {
+        // FakeBackend deliberately returns `other` mangled from what was
+        // passed in — a locally-built "optimistic" LangConfig from the same
+        // args would echo the args exactly and diverge from this.
+        let backend = FakeBackend(config: vi)
+        let m = AppModel(backend: backend)
+        m.loadConfig()
+        m.pick(.target, code: "en")
+        XCTAssertEqual(m.config?.other, "en-repaired", "must render what setLangConfig returned, not a guess built from the args")
     }
 }
