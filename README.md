@@ -34,7 +34,8 @@ K  ▾
 ## Requirements
 
 - Apple Silicon Mac with a fan (developed/verified on **MacBook Pro 14" M2 Pro**, macOS 26).
-- Xcode toolchain (Swift 6.x). No third-party dependencies.
+- Xcode toolchain (Swift 6.x) **and** a Rust toolchain (`cargo`) — the `Translate` module bridges
+  a Rust core (`crates/`) over the C ABI. No third-party Swift package dependencies.
 
 > Reading sensors needs no privileges. **Controlling the fan writes to the SMC, which requires
 > root**, so fan control runs through a small privileged LaunchDaemon (installed once). The app
@@ -102,15 +103,27 @@ Swift Package Manager modules:
 | `HelperProtocol` | Shared `Codable` command/response + socket path |
 | `KuroVitals` | AppKit menu bar UI (`AppDelegate`, `MenuBarController`), settings |
 | `kurovitals-helper` | Root daemon: applies per-fan SMC writes, per-fan TTL watchdog |
+| `Translate` | Swift↔Rust bridge (`crates/ktranslate-core`/`ktranslate-ffi` over the C ABI): text capture, lookup, language config, saved words, TTS |
 
 See `docs/superpowers/specs/` (design) and `docs/superpowers/spike-findings.md` (real M2 Pro SMC keys & verification).
 
 ## Development
 
 ```bash
-swift build      # build all targets
-swift test       # 20 unit tests (SMC decoders/encoders, stats math, fan logic, sensor aggregation)
+make build        # cargo build --release (Rust core), then swift build
+make test         # cargo test (Rust core, 123 tests), then swift test (45 tests)
 ```
+
+Always go through `make` — never call `swift build`/`swift test` directly. SwiftPM does not treat
+`crates/target/release/libktranslate_ffi.a` as a build input: after editing the Rust core, a bare
+`swift build` reports "Build complete" in well under a second and **silently keeps running the old
+Rust binary**, with no warning and no error. `make rust` (a dependency of every target above)
+hashes the `.a` and forces a clean Swift rebuild only when it actually changed, so a normal
+no-op build stays fast.
+
+**Xcode gap:** building or testing from Xcode also bypasses the Makefile — Xcode has no idea the
+Rust core exists. If you use Xcode, run `make rust` by hand first, and again after every Rust
+change, before hitting Build/Test.
 
 Diagnostics (read SMC keys; `--test-high` requires sudo and spins the fans up to verify control):
 
