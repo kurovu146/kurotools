@@ -1,0 +1,17 @@
+[package]
+name = "ktranslate-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "ktranslate_ffi"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+ktranslate-core = { path = "../ktranslate-core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
