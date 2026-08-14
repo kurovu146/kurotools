@@ -56,7 +56,17 @@ public struct RootView: View {
         // ngoài RootView — coi như tín hiệu đóng cả popup. RootView không giữ
         // tham chiếu tới `PopupPanel`/`hide()` nên tầng thứ hai đó KHÔNG thể
         // thực thi từ file này — xem ghi chú trong report.
-        .onExitCommand { _ = model.escape() }
+        //
+        // `model.dismissed()` đi kèm ở đây (vô hại ngoài `.needsPermission`,
+        // xem doc-comment của nó, AppState.swift): Escape trong lúc cổng
+        // quyền đang hiện trước đây không làm gì cả — picker không mở nên
+        // `escape()` no-op, và không có nhánh nào đổi `state`. Thiếu dòng
+        // này, `PermissionGateView` không bao giờ unmount qua đường Escape,
+        // và Timer poll của nó (PermissionGateModel) sống mãi.
+        .onExitCommand {
+            _ = model.escape()
+            model.dismissed()
+        }
     }
 }
 

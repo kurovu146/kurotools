@@ -112,4 +112,30 @@ public final class AppModel: ObservableObject {
         picking = nil
         return true
     }
+
+    /// Gọi khi popup bị đóng mà KHÔNG đi qua `handle(_:)` — bấm Escape trong
+    /// lúc cổng quyền hiện (RootView), hoặc bấm hotkey lần nữa để toggle-đóng
+    /// (`TranslateController`, Task 18) — chứ không phải một capture mới.
+    ///
+    /// `.needsPermission` là trạng thái DUY NHẤT giữ một tài nguyên sống:
+    /// `PermissionGateView` poll `hasAccessibility()` bằng `Timer` và chỉ
+    /// dừng nó ở `onGranted` hoặc `onDisappear`. Panel là một `NSPanel` sống
+    /// suốt vòng đời app với `contentView` gán một lần — `onDisappear` CHỈ
+    /// bắn khi view thật sự bị gỡ khỏi cây SwiftUI, tức là khi `state` đổi
+    /// khỏi `.needsPermission`, không phải khi panel chỉ `orderOut()`. Không
+    /// gọi hàm này ở đúng thời điểm popup đóng thì timer poll (2 lần/giây)
+    /// chạy vĩnh viễn dù popup đã ẩn — app nằm ở tray nhiều ngày liền nên đó
+    /// là tiêu pin thật, không phải lý thuyết. Bản React gốc không có bước
+    /// này (`hidePopup()` không reset state) vì trình duyệt tự throttle timer
+    /// nền; `Timer` của Swift thì không — port trung thực ở đây sẽ khuếch đại
+    /// một khiếm khuyết môi trường cũ che bớt, nên đây là chỗ cố ý không port
+    /// 1:1.
+    ///
+    /// Vô hại ở mọi trạng thái khác — không có tài nguyên nào khác cần giải
+    /// phóng, nên gọi hàm này một cách bảo thủ (mọi lần Escape, mọi lần
+    /// toggle-đóng) là an toàn.
+    public func dismissed() {
+        guard case .needsPermission = state else { return }
+        state = .idle
+    }
 }

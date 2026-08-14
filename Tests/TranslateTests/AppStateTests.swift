@@ -86,6 +86,25 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(backend.storedConfig?.target, "en")
     }
 
+    func testDismissedResetsANeedsPermissionScreenToIdle() {
+        let m = model(config: nil)
+        m.handle(.needsPermission)
+        m.dismissed()
+        XCTAssertEqual(m.state, .idle, "leaves the timer-owning gate so PermissionGateView.onDisappear can stop polling")
+    }
+
+    func testDismissedLeavesOtherStatesAlone() {
+        // FakeBackend.lookup gọi completion ĐỒNG BỘ, nên `run` đã ở `.done`
+        // ngay khi trả về — không có cách quan sát `.loading` ở test này.
+        let m = model(config: nil)
+        m.run("hello")
+        guard case .done = m.state else { return XCTFail("expected .done after a synchronous fake lookup") }
+        m.dismissed()
+        guard case .done = m.state else {
+            return XCTFail("only the permission gate has a live resource to release")
+        }
+    }
+
     func testPickRendersWhatTheBackendActuallyStoredNotAnOptimisticGuess() {
         // FakeBackend deliberately returns `other` mangled from what was
         // passed in — a locally-built "optimistic" LangConfig from the same
