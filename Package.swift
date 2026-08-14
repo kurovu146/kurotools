@@ -17,9 +17,21 @@ let package = Package(
             name: "KuroVitals",
             dependencies: ["SMCKit", "SystemStats", "SensorReader", "FanControl", "HelperProtocol"]),
         .executableTarget(name: "smc-dump", dependencies: ["SMCKit"]),
+        .target(
+            name: "Translate",
+            path: "Sources/Translate",
+            linkerSettings: [
+                .unsafeFlags(["-Lcrates/target/release", "-lktranslate_ffi"]),
+                .linkedFramework("AppKit"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("CoreFoundation"),
+                .linkedFramework("ApplicationServices"),
+            ]
+        ),
         .testTarget(name: "SMCKitTests", dependencies: ["SMCKit"]),
         .testTarget(name: "SystemStatsTests", dependencies: ["SystemStats"]),
         .testTarget(name: "SensorReaderTests", dependencies: ["SensorReader"]),
         .testTarget(name: "FanControlTests", dependencies: ["FanControl"]),
+        .testTarget(name: "TranslateTests", dependencies: ["Translate"]),
     ]
 )
