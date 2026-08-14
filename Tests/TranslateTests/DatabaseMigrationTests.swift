@@ -14,6 +14,7 @@ final class DatabaseMigrationTests: XCTestCase {
         try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
         try "OLD".write(to: old.appendingPathComponent("ktranslate.db"), atomically: true, encoding: .utf8)
         try "WAL".write(to: old.appendingPathComponent("ktranslate.db-wal"), atomically: true, encoding: .utf8)
+        try "SHM".write(to: old.appendingPathComponent("ktranslate.db-shm"), atomically: true, encoding: .utf8)
 
         let resolved = DatabaseMigration.resolveDatabase(appSupport: support, fileManager: .default)
 
@@ -21,6 +22,8 @@ final class DatabaseMigrationTests: XCTestCase {
         // -wal và -shm phải đi cùng; bỏ lại chúng là mời một db hỏng.
         let wal = resolved.deletingLastPathComponent().appendingPathComponent("ktranslate.db-wal")
         XCTAssertEqual(try String(contentsOf: wal, encoding: .utf8), "WAL")
+        let shm = resolved.deletingLastPathComponent().appendingPathComponent("ktranslate.db-shm")
+        XCTAssertEqual(try String(contentsOf: shm, encoding: .utf8), "SHM")
     }
 
     func testNeverOverwritesAnExistingDatabase() throws {
