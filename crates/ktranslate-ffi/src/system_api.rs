@@ -24,8 +24,10 @@ pub extern "C" fn kt_tts_available() -> bool {
 
 #[no_mangle]
 pub extern "C" fn kt_speak(text: *const c_char) -> *mut c_char {
-    let text = cstr_to_string(text);
-    json_out(move || serde_json::json!({ "ok": tts::speak(&text).is_ok() }))
+    json_out(move || {
+        let text = cstr_to_string(text);
+        serde_json::json!({ "ok": tts::speak(&text).is_ok() })
+    })
 }
 
 #[cfg(test)]

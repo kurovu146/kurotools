@@ -19,8 +19,8 @@ pub extern "C" fn kt_capture() -> *mut c_char {
 /// queue**, gọi trên main thread sẽ đóng băng đúng cái popup đang hiện.
 #[no_mangle]
 pub extern "C" fn kt_lookup(text: *const c_char) -> *mut c_char {
-    let text = cstr_to_string(text);
     json_out(move || {
+        let text = cstr_to_string(text);
         let config = state::with_store(|s| s.lang_config().unwrap_or_default()).unwrap_or_default();
         let lookup = GtxProvider::new().lookup(&text, &config);
         // Lịch sử là tiện ích, không phải một phần của câu trả lời. Ghi hỏng

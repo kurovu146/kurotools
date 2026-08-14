@@ -38,8 +38,11 @@ pub extern "C" fn kt_string_free(ptr: *mut c_char) {
 
 #[no_mangle]
 pub extern "C" fn kt_init(db_path: *const c_char) -> bool {
-    let path = state::cstr_to_string(db_path);
-    catch_unwind(AssertUnwindSafe(|| state::init(Path::new(&path)))).unwrap_or(false)
+    catch_unwind(AssertUnwindSafe(|| {
+        let path = state::cstr_to_string(db_path);
+        state::init(Path::new(&path))
+    }))
+    .unwrap_or(false)
 }
 
 #[cfg(test)]

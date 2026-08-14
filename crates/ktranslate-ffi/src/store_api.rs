@@ -4,8 +4,8 @@ use std::os::raw::c_char;
 
 #[no_mangle]
 pub extern "C" fn kt_save_word(word: *const c_char) -> *mut c_char {
-    let word = cstr_to_string(word);
     json_out(move || {
+        let word = cstr_to_string(word);
         let ok = state::with_store(|s| s.save_word(&word).is_ok()).unwrap_or(false);
         serde_json::json!({ "ok": ok })
     })
@@ -13,8 +13,8 @@ pub extern "C" fn kt_save_word(word: *const c_char) -> *mut c_char {
 
 #[no_mangle]
 pub extern "C" fn kt_unsave_word(word: *const c_char) -> *mut c_char {
-    let word = cstr_to_string(word);
     json_out(move || {
+        let word = cstr_to_string(word);
         let ok = state::with_store(|s| s.unsave_word(&word).is_ok()).unwrap_or(false);
         serde_json::json!({ "ok": ok })
     })
@@ -22,8 +22,8 @@ pub extern "C" fn kt_unsave_word(word: *const c_char) -> *mut c_char {
 
 #[no_mangle]
 pub extern "C" fn kt_is_saved(word: *const c_char) -> *mut c_char {
-    let word = cstr_to_string(word);
     json_out(move || {
+        let word = cstr_to_string(word);
         let saved = state::with_store(|s| s.is_saved(&word).unwrap_or(false)).unwrap_or(false);
         serde_json::json!({ "saved": saved })
     })

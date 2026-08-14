@@ -25,12 +25,12 @@ pub extern "C" fn kt_set_lang_config(
     target: *const c_char,
     other: *const c_char,
 ) -> *mut c_char {
-    let (source, target, other) = (
-        cstr_to_string(source),
-        cstr_to_string(target),
-        cstr_to_string(other),
-    );
     json_out(move || {
+        let (source, target, other) = (
+            cstr_to_string(source),
+            cstr_to_string(target),
+            cstr_to_string(other),
+        );
         let source_lang = match source.as_str() {
             "" | "auto" => None,
             code => match Lang::from_code(code) {
@@ -48,7 +48,11 @@ pub extern "C" fn kt_set_lang_config(
         // `set_lang_config`'s failure must surface — silently swallowing it
         // (as this used to) would let the UI believe a write succeeded when
         // nothing was actually persisted. `push_recent_lang` stays
-        // best-effort, matching the Tauri command this replaces.
+        // best-effort, matching the Tauri command this replaces. `with_store`
+        // returning `None` (store never initialized) is a write that never
+        // happened at all, and must be reported the same way as one that
+        // happened and failed — not silently treated as success by falling
+        // through the `Err` check below.
         let write: Option<Result<(), StoreError>> = state::with_store(|s| {
             s.set_lang_config(&config)?;
             if let Some(src) = config.source() {
@@ -57,10 +61,11 @@ pub extern "C" fn kt_set_lang_config(
             let _ = s.push_recent_lang(config.target());
             Ok(())
         });
-        if let Some(Err(e)) = write {
-            return serde_json::json!({ "error": e.to_string() });
+        match write {
+            Some(Ok(())) => serde_json::to_value(config).unwrap_or(serde_json::Value::Null),
+            Some(Err(e)) => serde_json::json!({ "error": e.to_string() }),
+            None => serde_json::json!({ "error": "store not initialized" }),
         }
-        serde_json::to_value(config).unwrap_or(serde_json::Value::Null)
     })
 }
 
@@ -160,6 +165,25 @@ mod tests {
         assert!(
             v.get("error").is_some(),
             "a failed write must surface as an error, got {v}"
+        );
+    }
+
+    #[test]
+    fn a_missing_store_is_reported_as_an_error_not_success() {
+        // kt_init was never called for this store, so with_store returns None
+        // outright — a distinct case from set_lang_config's own Err, and one
+        // the earlier fix missed: `write` being None fell through the `if let
+        // Some(Err(e))` check and reached the success path unchallenged.
+        let _guard = state::TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        state::reset_for_test();
+
+        let de = CString::new("de").unwrap();
+        let vi = CString::new("vi").unwrap();
+        let en = CString::new("en").unwrap();
+        let v = take(kt_set_lang_config(de.as_ptr(), vi.as_ptr(), en.as_ptr()));
+        assert!(
+            v.get("error").is_some(),
+            "a write with no store must surface as an error, got {v}"
         );
     }
 }
