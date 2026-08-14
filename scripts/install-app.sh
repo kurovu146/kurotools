@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# See build-release.sh: `make rust` guards against linking a stale Rust
+# staticlib that a bare `swift build` would silently reuse.
+make rust
 swift build -c release
 BIN="$(pwd)/.build/release/KuroVitals"
 PLIST="$HOME/Library/LaunchAgents/com.kuro.kurovitals.app.plist"
