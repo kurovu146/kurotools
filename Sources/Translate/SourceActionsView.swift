@@ -116,6 +116,12 @@ private struct IconActionButton: View {
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .help(label)
         .accessibilityLabel(label)
+        // Tương đương `aria-pressed={pressed}` của bản TS trên nút lưu: VoiceOver
+        // phải nghe được nút đang ở trạng thái đã lưu hay chưa, không chỉ thấy màu
+        // đổi. `active` trùng đúng ý nghĩa "đang bật" cho cả hai lần gọi hiện tại
+        // (loa luôn `false` — không phải nút toggle; sao là `saved`), nên dùng
+        // thẳng nó thay vì thêm một tham số riêng.
+        .accessibilityAddTraits(active ? .isSelected : [])
         .onHover { hovering = $0 }
     }
 }
