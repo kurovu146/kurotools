@@ -3,6 +3,7 @@ import Foundation
 @_silgen_name("kt_init") private func kt_init(_ path: UnsafePointer<CChar>?) -> Bool
 @_silgen_name("kt_string_free") private func kt_string_free(_ p: UnsafeMutablePointer<CChar>?)
 @_silgen_name("kt_capture") private func kt_capture() -> UnsafeMutablePointer<CChar>?
+@_silgen_name("kt_read_clipboard") private func kt_read_clipboard() -> UnsafeMutablePointer<CChar>?
 @_silgen_name("kt_lookup") private func kt_lookup(_ t: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("kt_languages") private func kt_languages() -> UnsafeMutablePointer<CChar>?
 @_silgen_name("kt_lang_config") private func kt_lang_config() -> UnsafeMutablePointer<CChar>?
@@ -26,6 +27,13 @@ public enum CaptureOutcome: Equatable, Sendable {
 
 public protocol TranslateBackend: AnyObject {
     func capture() -> CaptureOutcome
+    /// Bản async của `capture()` — để caller không chặn main thread chờ nó.
+    /// Có default bên dưới nên backend đồng bộ không cần tự triển khai lại.
+    /// `capture()` của `KTranslateBridge` có thể mất tới ~1.4s trên đường
+    /// thất bại (`COPY_TIMEOUT` + `LATE_WRITE_GRACE`, cả hai là
+    /// `std::thread::sleep` trong Rust) — gọi nó trên main thread đóng băng
+    /// cả app GỘP này, không chỉ riêng popup dịch (I-1, final review).
+    func captureAsync(completion: @escaping (CaptureOutcome) -> Void)
     func lookup(_ text: String, completion: @escaping (Lookup) -> Void)
     func languages() -> [String]
     func recentLanguages() -> [String]
@@ -47,6 +55,19 @@ public protocol TranslateBackend: AnyObject {
 }
 
 extension TranslateBackend {
+    /// Mặc định: chạy `capture` đồng bộ trên một queue nền rồi trả kết quả về
+    /// main thread — cùng khuôn `isSavedAsync` bên dưới. `KTranslateBridge`
+    /// override để dùng `queue` RIÊNG của nó (Task 9) thay vì queue chung ở
+    /// đây, giữ đúng cách nó đã serialize hoá mọi lệnh gọi FFI khác
+    /// (`lookup`/`speak`) — backend test double thì `capture()` vốn đã đồng
+    /// bộ và rẻ, default này là đủ, không cần override riêng.
+    public func captureAsync(completion: @escaping (CaptureOutcome) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let value = self.capture()
+            DispatchQueue.main.async { completion(value) }
+        }
+    }
+
     /// Mặc định: chạy `isSaved` đồng bộ trên background queue rồi trả kết quả
     /// về main thread. `KTranslateBridge.isSaved` là một truy vấn SQLite cục
     /// bộ (không phải HTTP như `lookup`/`speak` — hai hàm đó mới thật sự đi ra
@@ -96,13 +117,43 @@ public final class KTranslateBridge: TranslateBackend, @unchecked Sendable {
     /// **Phải gọi TRƯỚC khi show popup** — show trước sẽ cướp focus và mọi lần
     /// capture trả về rỗng.
     ///
-    /// Phân biệt "không có gì được chọn" với "thiếu quyền": chỉ trường hợp sau
-    /// mới đáng làm phiền người dùng.
+    /// Quyền được kiểm TRƯỚC TIÊN (I-2, final review): thiếu Accessibility
+    /// thì `CGEvent::post` bên trong `kt_capture()` giả lập ⌘C mà không làm
+    /// gì cả (im lặng, không lỗi), và trước bản vá này caller phải chờ hết
+    /// `COPY_TIMEOUT` (800ms) + `LATE_WRITE_GRACE` (600ms) — cả hai đều
+    /// `std::thread::sleep` trong Rust — mới biết là thiếu quyền. Short-circuit
+    /// ở đây cắt hẳn ~1.4s chờ vô ích đó. Đối chiếu `popup.rs::capture_now`,
+    /// đúng cùng thứ tự: kiểm quyền trước, không thử capture trước rồi mới hỏi.
     public func capture() -> CaptureOutcome {
-        guard let r = takeJSON(kt_capture(), as: CaptureResult.self), r.ok, !r.text.isEmpty else {
-            return hasAccessibility() ? .empty : .needsPermission
+        guard hasAccessibility() else { return .needsPermission }
+
+        if let r = takeJSON(kt_capture(), as: CaptureResult.self), r.ok, !r.text.isEmpty {
+            return .text(r.text)
         }
-        return .text(r.text)
+
+        // M-3 (final review): đường cứu khi có quyền nhưng không lấy được gì
+        // — tmux/Ghostty giữ selection riêng, synth ⌘C không bao giờ tới được
+        // nó (xem doc `capture_selection` trong capture.rs), nhưng người dùng
+        // có thể đã `y` copy tay trước khi bấm hotkey. Đối chiếu
+        // `popup.rs::capture_now`, nhánh `Ok(_) | Err(NothingSelected)` —
+        // "the documented degraded path".
+        if let clip = takeJSON(kt_read_clipboard(), as: CaptureResult.self), clip.ok, !clip.text.isEmpty {
+            return .text(clip.text)
+        }
+
+        return .empty
+    }
+
+    /// Off main thread (I-1, final review): xem doc-comment `captureAsync`
+    /// trên `TranslateBackend`. Dùng `queue` riêng của lớp này thay vì default
+    /// generic của protocol — cùng queue `lookup`/`speak` đã dùng từ Task 9 để
+    /// giữ mọi lệnh gọi FFI tuần tự với nhau, không tình cờ chạy chồng lên một
+    /// `lookup` đang thực thi.
+    public func captureAsync(completion: @escaping (CaptureOutcome) -> Void) {
+        queue.async {
+            let outcome = self.capture()
+            DispatchQueue.main.async { completion(outcome) }
+        }
     }
 
     public func lookup(_ text: String, completion: @escaping (Lookup) -> Void) {

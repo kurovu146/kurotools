@@ -81,10 +81,21 @@ public final class TranslateController {
     /// bên trong `backend.capture()` đi vào cửa sổ của CHÍNH MÌNH thay vì app
     /// kia — mọi lần capture sẽ trả về rỗng. Đối chiếu
     /// `popup.rs::show_with_selection`, đúng cùng thứ tự.
+    ///
+    /// I-1 (final review): `captureAsync`, không phải `capture()` đồng bộ —
+    /// đường thất bại của capture có thể mất tới ~1.4s (Rust
+    /// `std::thread::sleep`), và app này GỘP cả Vitals: gọi đồng bộ trên
+    /// `@MainActor` đóng băng menu bar nhiệt độ, menu quạt, và cửa sổ tiến
+    /// trình trong lúc đó, không chỉ riêng popup dịch. `model.handle()` +
+    /// `panel.show()` vẫn nằm trong CÙNG completion, đúng thứ tự capture-
+    /// trước-show — tương đương `spawn_blocking { capture_now(); show(&app);
+    /// emit(...) }` của bản gốc (`popup.rs::show_with_selection`).
     private func showPopup() {
-        let outcome = backend.capture()
-        model.handle(outcome)
-        panel?.show(near: NSEvent.mouseLocation)
+        backend.captureAsync { [weak self] outcome in
+            guard let self else { return }
+            self.model.handle(outcome)
+            self.panel?.show(near: NSEvent.mouseLocation)
+        }
     }
 
     /// Điểm gọi DUY NHẤT đóng popup — cả từ `toggle()` lẫn từ tier 2 của

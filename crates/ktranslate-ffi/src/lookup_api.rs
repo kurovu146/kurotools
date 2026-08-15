@@ -15,6 +15,21 @@ pub extern "C" fn kt_capture() -> *mut c_char {
     })
 }
 
+/// Đọc clipboard thường — đường cứu khi `kt_capture` không lấy được gì dù đã
+/// có quyền Accessibility. `capture_selection()`'s doc-comment nói thẳng:
+/// trong tmux/Ghostty, selection không bao giờ tới được synth ⌘C (tmux giữ
+/// selection riêng, chỉ đẩy ra clipboard hệ thống qua binding copy của chính
+/// nó) — "Callers should fall back to `read_clipboard`". Chưa ai gọi hàm này
+/// từ phía Swift trước M-3 (final review); FFI thiếu nốt nửa còn lại của hợp
+/// đồng đó.
+#[no_mangle]
+pub extern "C" fn kt_read_clipboard() -> *mut c_char {
+    json_out(|| match capture::read_clipboard() {
+        Ok(text) => serde_json::json!({ "ok": true, "text": text }),
+        Err(e) => serde_json::json!({ "ok": false, "text": "", "error": e.to_string() }),
+    })
+}
+
 /// Tra `text`. Đồng bộ và có HTTP bên trong — **Swift phải gọi trên background
 /// queue**, gọi trên main thread sẽ đóng băng đúng cái popup đang hiện.
 #[no_mangle]
@@ -48,6 +63,15 @@ mod tests {
         // Trên máy không có Accessibility đây là đường thất bại — vẫn phải
         // đúng shape, không được null hay JSON rỗng.
         let v = take(kt_capture());
+        assert!(v.get("ok").and_then(|b| b.as_bool()).is_some());
+        assert!(v.get("text").and_then(|t| t.as_str()).is_some());
+    }
+
+    #[test]
+    fn read_clipboard_always_returns_the_agreed_shape() {
+        // Cùng shape với kt_capture — Swift takeJSON(as: CaptureResult.self)
+        // dùng chung một struct cho cả hai (M-3, final review).
+        let v = take(kt_read_clipboard());
         assert!(v.get("ok").and_then(|b| b.as_bool()).is_some());
         assert!(v.get("text").and_then(|t| t.as_str()).is_some());
     }
