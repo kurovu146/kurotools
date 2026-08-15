@@ -1,6 +1,9 @@
-# KuroVitals
+# KuroTools
 
-A native macOS **menu bar** app (Swift) that monitors **CPU temperature, CPU load, RAM, and fan RPM**, and lets you control each fan's speed independently — built for **Apple Silicon (MacBook Pro M2 Pro)**.
+A native macOS **menu bar** app (Swift) that monitors **CPU temperature, CPU load, RAM, and fan RPM**
+and lets you control each fan's speed independently, and also pops up a **dictionary lookup** for
+whatever text is currently selected in any app (global hotkey) — built for **Apple Silicon (MacBook
+Pro M2 Pro)**.
 
 The menu bar shows a single **`K`** icon; click it for the full readout and controls:
 
@@ -26,6 +29,8 @@ K  ▾
   *(macOS menus can't host a text field that receives typing, so speed is chosen from presets.)*
 - **Process inspector:** search running processes by name/PID/port, view per-process CPU/RAM
   and open ports, and send a terminate signal to a selected process.
+- **Dictionary lookup popup:** global hotkey captures the current text selection in any app and
+  shows source + Oxford English definitions + Vietnamese translation in a floating panel.
 - **Safety, three layers:** RPM is clamped to the hardware range; the app auto-reverts to Auto
   when temperature hits the threshold (90/95/100 °C, with a menu-bar warning); the root helper
   reverts every fan to Auto if the app crashes / stops sending heartbeats — and on its own startup.
@@ -34,7 +39,8 @@ K  ▾
 ## Requirements
 
 - Apple Silicon Mac with a fan (developed/verified on **MacBook Pro 14" M2 Pro**, macOS 26).
-- Xcode toolchain (Swift 6.x). No third-party dependencies.
+- Xcode toolchain (Swift 6.x) **and** a Rust toolchain (`cargo`) — the `Translate` module bridges
+  a Rust core (`crates/`) over the C ABI. No third-party Swift package dependencies.
 
 > Reading sensors needs no privileges. **Controlling the fan writes to the SMC, which requires
 > root**, so fan control runs through a small privileged LaunchDaemon (installed once). The app
@@ -53,8 +59,11 @@ cd kurovitals
 Prefer to run it in the foreground instead of the background? Skip `install-app.sh` and run:
 
 ```bash
-swift run KuroVitals
+make build && .build/debug/KuroTools
 ```
+
+(Not a bare `swift run` — see [Development](#development) below for why that would silently link a
+stale Rust core.)
 
 Removal:
 
@@ -84,7 +93,7 @@ Two processes, split by privilege:
 
 ```
 ┌─────────────────────────┐      Unix socket (JSON)       ┌──────────────────────┐
-│  KuroVitals.app (user)  │ ──── set fan N = 5000 rpm ───▶ │ kurovitals-helper    │
+│  KuroTools.app (user)   │ ──── set fan N = 5000 rpm ───▶ │ kurovitals-helper    │
 │  • "K" menu bar + menu   │ ◀─── ok / state ──────────────│  (root LaunchDaemon) │
 │  • CPU%/RAM via Mach     │                               │  • writes SMC F{n}Md/Tg │
 │  • temp/fan via SMC (RO) │                               │  • per-fan TTL watchdog │
@@ -100,17 +109,30 @@ Swift Package Manager modules:
 | `SensorReader` | Combines temp (avg of `Tp*`+`Te*`) / CPU / RAM / per-fan readings into a `Snapshot` |
 | `FanControl` | Per-fan clamp + over-temp auto-revert + heartbeat; Unix-socket `HelperClient` |
 | `HelperProtocol` | Shared `Codable` command/response + socket path |
-| `KuroVitals` | AppKit menu bar UI (`AppDelegate`, `MenuBarController`), settings |
+| `Vitals` | AppKit menu bar UI (`VitalsController`, `MenuBarController`), settings, process inspector |
 | `kurovitals-helper` | Root daemon: applies per-fan SMC writes, per-fan TTL watchdog |
+| `Translate` | Swift↔Rust bridge (`crates/ktranslate-core`/`ktranslate-ffi` over the C ABI): text capture, lookup, language config, saved words, TTS |
+| `KuroTools` | Executable: wires `Vitals` + `Translate` behind one menu bar icon (`AppDelegate`) |
 
 See `docs/superpowers/specs/` (design) and `docs/superpowers/spike-findings.md` (real M2 Pro SMC keys & verification).
 
 ## Development
 
 ```bash
-swift build      # build all targets
-swift test       # 20 unit tests (SMC decoders/encoders, stats math, fan logic, sensor aggregation)
+make build        # cargo build --release (Rust core), then swift build
+make test         # cargo test (Rust core, 123 tests), then swift test (65 tests)
 ```
+
+Always go through `make` — never call `swift build`/`swift test` directly. SwiftPM does not treat
+`crates/target/release/libktranslate_ffi.a` as a build input: after editing the Rust core, a bare
+`swift build` reports "Build complete" in well under a second and **silently keeps running the old
+Rust binary**, with no warning and no error. `make rust` (a dependency of every target above)
+hashes the `.a` and forces a clean Swift rebuild only when it actually changed, so a normal
+no-op build stays fast.
+
+**Xcode gap:** building or testing from Xcode also bypasses the Makefile — Xcode has no idea the
+Rust core exists. If you use Xcode, run `make rust` by hand first, and again after every Rust
+change, before hitting Build/Test.
 
 Diagnostics (read SMC keys; `--test-high` requires sudo and spins the fans up to verify control):
 

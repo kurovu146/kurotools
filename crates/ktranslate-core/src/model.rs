@@ -1,0 +1,213 @@
+//! The shape every provider returns and the UI renders. Pure data, no I/O.
+
+use serde::Serialize;
+
+use crate::lang::Lang;
+
+/// Hard cap on how much text is sent to a provider in one lookup.
+///
+/// Inherited from `tl`. Chosen to keep a runaway paste — a whole file selected
+/// by accident — from becoming a multi-megabyte request.
+pub const MAX_CHARS: usize = 5000;
+
+/// Above this many words, the dictionary lookup is skipped entirely.
+///
+/// The gtx endpoint returns no dictionary entry for phrases, so the request is
+/// pure latency with a guaranteed empty result.
+pub const MAX_DEFINITION_WORDS: usize = 4;
+
+/// One sense of a word, as the dictionary reports it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Definition {
+    pub part_of_speech: String,
+    /// Most words have none. Present for domain-specific senses ("computing",
+    /// "law"), which is exactly where a general translation is least reliable.
+    pub domain: Option<String>,
+    pub gloss: String,
+}
+
+/// A completed lookup. Always constructible even when everything failed —
+/// `translation: None` with empty `definitions` is the "unavailable" state the
+/// UI renders, and it must never surface as an error dialog.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Lookup {
+    pub source: String,
+    /// Whether [`truncate_source`] cut the text before it was sent.
+    ///
+    /// Carried as a flag rather than re-derived from `source` later: text that
+    /// merely *contains* a truncation marker — pasted output from an earlier
+    /// lookup, say — must not be reported as truncated when it never was.
+    /// This exact bug shipped in `tl`.
+    pub source_truncated: bool,
+    pub definitions: Vec<Definition>,
+    pub translation: Option<String>,
+    /// The configured source, or what auto-detection reported. `None` when
+    /// the source was auto and detection produced nothing usable.
+    pub source_lang: Option<Lang>,
+    /// The language actually translated into — **not** necessarily the one
+    /// configured. When the no-op rule retries into the fallback language the
+    /// two differ, and the UI has to label what it is showing.
+    pub target_lang: Lang,
+    /// The language `definitions` are written in. `None` when there are none.
+    pub definition_lang: Option<Lang>,
+}
+
+impl Lookup {
+    /// A lookup that resolved to nothing. The provider's failure path.
+    pub fn unavailable(source: String, source_truncated: bool, target_lang: Lang) -> Self {
+        Self {
+            source,
+            source_truncated,
+            definitions: Vec::new(),
+            translation: None,
+            source_lang: None,
+            target_lang,
+            definition_lang: None,
+        }
+    }
+
+    /// Whitespace-separated word count of the source text.
+    pub fn word_count(&self) -> usize {
+        self.source.split_whitespace().count()
+    }
+
+    /// Whether this input is short enough to be worth a dictionary request.
+    pub fn wants_definitions(&self) -> bool {
+        wants_definitions(&self.source)
+    }
+}
+
+/// Whether `text` is short enough to be worth a dictionary request.
+///
+/// A free function as well as a method because the request planner has to
+/// decide before any `Lookup` exists.
+pub fn wants_definitions(text: &str) -> bool {
+    let words = text.split_whitespace().count();
+    words > 0 && words <= MAX_DEFINITION_WORDS
+}
+
+/// Cap `text` at [`MAX_CHARS`], reporting whether it was cut.
+///
+/// Counts and slices by **character**, not byte. Slicing a `&str` at an
+/// arbitrary byte offset panics when it lands mid-character, and Vietnamese
+/// input is multi-byte throughout — so a byte-based cap would both truncate
+/// early and eventually panic on real user text.
+pub fn truncate_source(text: &str) -> (String, bool) {
+    // `char_indices().nth(MAX_CHARS)` yields the byte offset of the first
+    // character *past* the cap, or None when the text is within it. That
+    // offset is a character boundary by construction, so the slice below can
+    // never panic — which is the property a byte-arithmetic version lacks.
+    match text.char_indices().nth(MAX_CHARS) {
+        Some((byte_offset, _)) => (text[..byte_offset].to_owned(), true),
+        None => (text.to_owned(), false),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lookup_of(source: &str) -> Lookup {
+        Lookup::unavailable(source.to_owned(), false, Lang::VI)
+    }
+
+    #[test]
+    fn truncate_source_leaves_short_text_alone() {
+        let (out, cut) = truncate_source("hello");
+        assert_eq!(out, "hello");
+        assert!(!cut);
+    }
+
+    #[test]
+    fn truncate_source_leaves_text_of_exactly_max_chars_alone() {
+        // The boundary: exactly at the cap is not over it, and reporting a cut
+        // here would show the user a truncation marker for intact text.
+        let exact = "a".repeat(MAX_CHARS);
+        let (out, cut) = truncate_source(&exact);
+        assert_eq!(out.chars().count(), MAX_CHARS);
+        assert!(!cut);
+    }
+
+    #[test]
+    fn truncate_source_cuts_at_max_chars_and_reports_it() {
+        let long = "a".repeat(MAX_CHARS + 100);
+        let (out, cut) = truncate_source(&long);
+        assert!(cut);
+        assert_eq!(out.chars().count(), MAX_CHARS);
+    }
+
+    #[test]
+    fn truncate_source_counts_characters_not_bytes() {
+        // "ề" is 3 bytes. A byte-based implementation would cut this at a
+        // third of the intended length, and could panic splitting a character.
+        let long = "ề".repeat(MAX_CHARS + 10);
+        let (out, cut) = truncate_source(&long);
+        assert!(cut);
+        assert_eq!(out.chars().count(), MAX_CHARS);
+        assert_eq!(
+            out.len(),
+            MAX_CHARS * 3,
+            "should have cut on chars, not bytes"
+        );
+    }
+
+    #[test]
+    fn truncate_source_never_splits_a_multibyte_character() {
+        // Push the cut point onto a character boundary that byte-slicing
+        // would land inside of. Any panic here is the bug this guards.
+        let text = format!("{}ề tail", "x".repeat(MAX_CHARS - 1));
+        let (out, cut) = truncate_source(&text);
+        assert!(cut);
+        assert!(out.ends_with('ề'));
+    }
+
+    #[test]
+    fn word_count_is_whitespace_separated() {
+        assert_eq!(lookup_of("race condition").word_count(), 2);
+    }
+
+    #[test]
+    fn word_count_ignores_repeated_and_surrounding_whitespace() {
+        assert_eq!(lookup_of("  a\t\tb \n").word_count(), 2);
+    }
+
+    #[test]
+    fn word_count_of_empty_text_is_zero() {
+        assert_eq!(lookup_of("   ").word_count(), 0);
+    }
+
+    #[test]
+    fn short_input_wants_definitions_and_long_input_does_not() {
+        assert!(lookup_of("idempotent").wants_definitions());
+        assert!(lookup_of("one two three four").wants_definitions());
+        assert!(!lookup_of("one two three four five").wants_definitions());
+    }
+
+    #[test]
+    fn unavailable_carries_the_source_through() {
+        let l = Lookup::unavailable("idempotent".into(), true, Lang::VI);
+        assert_eq!(l.source, "idempotent");
+        assert!(l.source_truncated);
+        assert!(l.translation.is_none());
+        assert!(l.definitions.is_empty());
+    }
+
+    #[test]
+    fn unavailable_records_the_target_it_was_aiming_at() {
+        // The UI labels the translation block with the language it was trying to
+        // produce, so even a failed lookup has to carry one.
+        let l = Lookup::unavailable("idempotent".into(), false, Lang::VI);
+        assert_eq!(l.target_lang, Lang::VI);
+        assert_eq!(l.source_lang, None);
+        assert_eq!(l.definition_lang, None);
+    }
+
+    #[test]
+    fn wants_definitions_is_available_without_building_a_lookup() {
+        // The request planner decides before a Lookup exists.
+        assert!(wants_definitions("idempotent"));
+        assert!(wants_definitions("one two three four"));
+        assert!(!wants_definitions("one two three four five"));
+        assert!(!wants_definitions("   "));
+    }
+}

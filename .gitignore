@@ -5,3 +5,6 @@
 .kt/
 .superpowers/
 docs/superpowers/
+target/
+crates/target/
+*.app

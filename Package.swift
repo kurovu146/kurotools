@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "KuroVitals",
+    name: "KuroTools",
     platforms: [.macOS(.v13)],
     targets: [
         .target(name: "HelperProtocol"),
@@ -13,13 +13,28 @@ let package = Package(
         .executableTarget(
             name: "kurovitals-helper",
             dependencies: ["SMCKit", "HelperProtocol"]),
-        .executableTarget(
-            name: "KuroVitals",
-            dependencies: ["SMCKit", "SystemStats", "SensorReader", "FanControl", "HelperProtocol"]),
         .executableTarget(name: "smc-dump", dependencies: ["SMCKit"]),
+        .target(name: "Vitals",
+                dependencies: ["SMCKit", "SystemStats", "SensorReader", "FanControl", "HelperProtocol"],
+                path: "Sources/Vitals"),
+        .target(
+            name: "Translate",
+            path: "Sources/Translate",
+            linkerSettings: [
+                .unsafeFlags(["-Lcrates/target/release", "-lktranslate_ffi"]),
+                .linkedFramework("AppKit"),
+                .linkedFramework("SwiftUI"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("CoreFoundation"),
+                .linkedFramework("ApplicationServices"),
+                .linkedFramework("Carbon"),
+            ]
+        ),
+        .executableTarget(name: "KuroTools", dependencies: ["Vitals", "Translate"], path: "Sources/KuroTools"),
         .testTarget(name: "SMCKitTests", dependencies: ["SMCKit"]),
         .testTarget(name: "SystemStatsTests", dependencies: ["SystemStats"]),
         .testTarget(name: "SensorReaderTests", dependencies: ["SensorReader"]),
         .testTarget(name: "FanControlTests", dependencies: ["FanControl"]),
+        .testTarget(name: "TranslateTests", dependencies: ["Translate"]),
     ]
 )

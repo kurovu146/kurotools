@@ -94,7 +94,7 @@ public extension MenuBarController {
     ///   - toggleShow:    Action for Show-X checkable items; sender.tag = 0:temp 1:cpu 2:ram 3:fan.
     ///   - setThreshold:  Action for threshold items; sender.tag = the °C value (90/95/100).
     ///   - showProcesses: Action for opening the running-process inspector.
-    ///   - quit:          Action for "Quit KuroVitals".
+    ///   - quit:          Action for "Quit KuroTools".
     func populate(menu: NSMenu,
                   snapshot s: Snapshot,
                   settings: Settings,
@@ -237,7 +237,7 @@ public extension MenuBarController {
         menu.addItem(.separator())
 
         // ── 9. Quit ───────────────────────────────────────────────────────────
-        let quitItem = NSMenuItem(title: "Quit KuroVitals", action: quit, keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit KuroTools", action: quit, keyEquivalent: "q")
         quitItem.target = target
         menu.addItem(quitItem)
     }

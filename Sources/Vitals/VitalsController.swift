@@ -6,12 +6,10 @@ import FanControl
 import HelperProtocol
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+public final class VitalsController: NSObject, NSMenuDelegate {
     private var reader: SensorReader!
     private let menuBar = MenuBarController()
     private lazy var processWindowController = ProcessWindowController()
-    // One persistent menu, repopulated on open (menuNeedsUpdate) — never on the tick.
-    private let menu = NSMenu()
     private var fan: FanController!
     private var timer: Timer?
     private var settings = Settings.load()
@@ -23,25 +21,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Tick interval while the dropdown is open — fast enough to feel live.
     private let menuOpenRefreshSeconds: TimeInterval = 1.0
 
-    func applicationDidFinishLaunching(_ note: Notification) {
+    /// Menu giờ dùng chung với module Translate, nên chủ sở hữu menu là
+    /// AppDelegate của KuroTools chứ không phải controller này.
+    public var extraItems: [NSMenuItem] = []
+
+    /// Returns whether startup actually succeeded. `NSApp.terminate(nil)` on
+    /// the failure path is ASYNCHRONOUS — it only schedules the quit, it does
+    /// not stop execution here — so the caller must check this before doing
+    /// anything else that assumes a live app (minor, final review): without
+    /// it, AppDelegate used to plough on into `translate.start(...)` on a
+    /// machine that is about to quit, registering the global hotkey, running
+    /// the database migration, and opening SQLite for no reason.
+    public func start() -> Bool {
         guard let smc = try? SMC() else {
             let a = NSAlert()
-            a.messageText = "KuroVitals"
+            a.messageText = "KuroTools"
             a.informativeText = "Cannot open SMC (AppleSMC). The app will quit."
             a.runModal()
             NSApp.terminate(nil)
-            return
+            return false
         }
         reader = SensorReader(smc: smc, cpu: CPULoadSampler(), mem: MemorySampler())
         fan = FanController(commander: HelperClient(), threshold: settings.thresholdC, ttlSeconds: 6)
-
-        menu.delegate = self
-        menuBar.statusItem.menu = menu
 
         startNormalTimer()
 
         // Warm the SMC key/info caches so the first menu open is instant.
         lastSnapshot = reader.snapshot()
+        return true
+    }
+
+    /// Menu giờ dùng chung với module Translate, nên chủ sở hữu menu là
+    /// AppDelegate của KuroTools chứ không phải controller này.
+    public func attach(menu: NSMenu) {
+        menu.delegate = self
+        menuBar.statusItem.menu = menu
+    }
+
+    /// Reverts fans to auto on any termination path, not just the "Quit"
+    /// menu item — e.g. system shutdown/logout also sends this to accessory
+    /// apps. Forwarded from KuroTools' AppDelegate.applicationWillTerminate.
+    public func stop() {
+        _ = fan?.setAllAuto()
     }
 
     /// (Re)schedules the tick in RunLoop mode .common — unlike scheduledTimer's
@@ -96,19 +117,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if menuOpen { menuBar.updateLive(snapshot: s) }
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
+    public func menuWillOpen(_ menu: NSMenu) {
         menuOpen = true
         startTimer(interval: menuOpenRefreshSeconds, tolerance: 0.1)
     }
 
-    func menuDidClose(_ menu: NSMenu) {
+    public func menuDidClose(_ menu: NSMenu) {
         menuOpen = false
         startNormalTimer()
     }
 
     /// Called by AppKit right before the dropdown opens — build it from a fresh
     /// snapshot so RPM/temp/checkmarks are current without any per-tick rebuild.
-    func menuNeedsUpdate(_ menu: NSMenu) {
+    public func menuNeedsUpdate(_ menu: NSMenu) {
         let s = reader.snapshot()
         lastSnapshot = s
         menuBar.populate(menu: menu, snapshot: s, settings: settings, target: self,
@@ -121,6 +142,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             setThreshold: #selector(setThreshold(_:)),
             showProcesses: #selector(showProcesses),
             quit: #selector(quitApp))
+
+        if !extraItems.isEmpty {
+            // menuBar.populate() always ends with "Quit" as the last item —
+            // insert ahead of it instead of appending, so extra items read as
+            // part of the menu body (macOS convention keeps Quit last).
+            let quitIndex = menu.items.count - 1
+            menu.insertItem(.separator(), at: quitIndex)
+            for (offset, item) in extraItems.enumerated() {
+                menu.insertItem(item, at: quitIndex + 1 + offset)
+            }
+        }
     }
 
     private func flashHelperWarning() {
@@ -203,6 +235,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func quitApp() { _ = fan.setAllAuto(); NSApp.terminate(nil) }
-
-    func applicationWillTerminate(_ note: Notification) { _ = fan?.setAllAuto() }
 }
