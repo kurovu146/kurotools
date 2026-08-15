@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "KuroVitals",
+    name: "KuroTools",
     platforms: [.macOS(.v13)],
     targets: [
         .target(name: "HelperProtocol"),
