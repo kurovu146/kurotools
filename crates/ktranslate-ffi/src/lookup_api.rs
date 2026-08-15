@@ -51,6 +51,18 @@ pub extern "C" fn kt_lookup(text: *const c_char) -> *mut c_char {
 mod tests {
     use super::*;
     use std::ffi::{CStr, CString};
+    use std::sync::Mutex;
+
+    /// `cargo test` chạy mỗi hàm test trên MỘT THREAD riêng, song song theo
+    /// mặc định. `capture_selection()`/`read_clipboard()` cả hai đều đi qua
+    /// `arboard::Clipboard` bọc `NSPasteboard` — hai test cùng đụng clipboard
+    /// đồng thời từ hai thread khác nhau (final review, follow-up của M-3:
+    /// thêm `read_clipboard_always_returns_the_agreed_shape` là lần ĐẦU TIÊN
+    /// có test thứ hai chạm clipboard) đo được crash SIGSEGV/SIGABRT tái lập
+    /// gần như mỗi lần — `--test-threads=1` chạy sạch cả ba lần, xác nhận
+    /// đúng nguyên nhân là race, không phải logic sai. Giữ guard này TRONG
+    /// SUỐT phần thân test đụng clipboard, cùng khuôn `state::TEST_GUARD`.
+    static CLIPBOARD_TEST_GUARD: Mutex<()> = Mutex::new(());
 
     fn take(ptr: *mut std::os::raw::c_char) -> serde_json::Value {
         let s = unsafe { CStr::from_ptr(ptr) }.to_str().unwrap().to_owned();
@@ -60,6 +72,7 @@ mod tests {
 
     #[test]
     fn capture_always_returns_the_agreed_shape() {
+        let _guard = CLIPBOARD_TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         // Trên máy không có Accessibility đây là đường thất bại — vẫn phải
         // đúng shape, không được null hay JSON rỗng.
         let v = take(kt_capture());
@@ -69,6 +82,7 @@ mod tests {
 
     #[test]
     fn read_clipboard_always_returns_the_agreed_shape() {
+        let _guard = CLIPBOARD_TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         // Cùng shape với kt_capture — Swift takeJSON(as: CaptureResult.self)
         // dùng chung một struct cho cả hai (M-3, final review).
         let v = take(kt_read_clipboard());
