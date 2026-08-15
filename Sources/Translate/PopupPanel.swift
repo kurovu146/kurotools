@@ -1,5 +1,19 @@
 import AppKit
 
+/// `NSPanel.canBecomeKeyWindow` mặc định `true` theo tài liệu Apple — đó vốn
+/// là lý do `.nonactivatingPanel` tồn tại (một cửa sổ become-key được mà
+/// không kéo app lên foreground). Nhưng đo được thật (Task 21 report, câu hỏi
+/// 2): dù `show()` có gọi `panel.makeKey()`, phím vẫn bay tới app khác —
+/// `frontmost process` ngay sau khi gửi phím là app đó, không phải app này, và
+/// `value` của ô nhập luôn rỗng. Default không hiệu lực trong đúng tổ hợp
+/// `[.borderless, .nonactivatingPanel]` này (có lẽ do initial `styleMask`
+/// truyền vào `NSPanel(...)` khiến AppKit tự suy luận lại
+/// `canBecomeKeyWindow` — không tài liệu hoá, chỉ đo được). Override tường
+/// minh để không phụ thuộc vào suy luận ngầm đó.
+private final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 /// Popup tra từ, hiện đè lên mọi app kể cả app đang fullscreen — mà KHÔNG bao
 /// giờ cướp quyền active. Đối chiếu từng cờ với
 /// `~/Dev/ktranslate/src-tauri/src/popup.rs` (bản Tauri/`NSWindowStyleMaskNonactivatingPanel`
@@ -29,7 +43,7 @@ public final class PopupPanel {
     public var isVisible: Bool { panel.isVisible }
 
     public init(content: NSView) {
-        panel = NSPanel(
+        panel = KeyablePanel(
             contentRect: NSRect(x: 0, y: 0, width: Self.contentWidth, height: 160),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
