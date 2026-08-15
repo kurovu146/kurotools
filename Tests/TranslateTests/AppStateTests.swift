@@ -1,6 +1,43 @@
 import XCTest
 @testable import Translate
 
+/// Backend hoãn trả lời `lookup` theo lệnh, để test dựng lại đúng cảnh
+/// completion CŨ tới SAU completion MỚI (I-6, final review) — cùng khuôn
+/// `DeferredBackend` (SourceActionsTests.swift), nhưng hoãn ở `lookup` thay
+/// vì `isSavedAsync`.
+private final class DeferredLookupBackend: TranslateBackend {
+    private var pending: [(Lookup) -> Void] = []
+    var storedConfig: LangConfig?
+
+    init(config: LangConfig?) { storedConfig = config }
+
+    /// Trả lời request thứ `index` — 0 là request được `lookup` GỌI sớm
+    /// nhất, không nhất thiết là request được TRẢ LỜI sớm nhất ở đây.
+    func answer(at index: Int, targetLang: String) {
+        pending[index](Lookup(source: "hallo", sourceTruncated: false, definitions: [],
+                               translation: nil, sourceLang: nil, targetLang: targetLang,
+                               definitionLang: nil))
+    }
+
+    func capture() -> CaptureOutcome { .empty }
+    func lookup(_ text: String, completion: @escaping (Lookup) -> Void) {
+        pending.append(completion)
+    }
+    func languages() -> [String] { [] }
+    func recentLanguages() -> [String] { [] }
+    func langConfig() -> LangConfig? { storedConfig }
+    func setLangConfig(source: String?, target: String, other: String) -> LangConfig? {
+        storedConfig = LangConfig(source: source, target: target, other: other)
+        return storedConfig
+    }
+    func hasAccessibility() -> Bool { true }
+    func requestAccessibility() -> Bool { true }
+    func ttsAvailable() -> Bool { true }
+    func speak(_ text: String) {}
+    func isSaved(_ word: String) -> Bool { false }
+    @discardableResult func setSaved(_ word: String, saved: Bool) -> Bool { true }
+}
+
 @MainActor
 final class AppStateTests: XCTestCase {
     private func model(config: LangConfig?) -> AppModel {
@@ -103,6 +140,29 @@ final class AppStateTests: XCTestCase {
         guard case .done = m.state else {
             return XCTFail("only the permission gate has a live resource to release")
         }
+    }
+
+    func testAStaleLookupCompletionCannotOverwriteANewerLanguagePick() {
+        // I-6 (final review): chọn nhanh hai ngôn ngữ liên tiếp qua picker
+        // chạy `run(lastText)` hai lần — nếu completion của lần CHẠY TRƯỚC
+        // tới SAU completion của lần CHẠY SAU, nó ghi đè kết quả đúng bằng
+        // một kết quả đã lỗi thời, và không còn request nào đang chờ để sửa
+        // lại nhãn.
+        let backend = DeferredLookupBackend(config: vi)
+        let m = AppModel(backend: backend)
+        m.loadConfig()
+        m.handle(.text("hallo"))     // pending[0] — không trả lời, không liên quan
+        m.pick(.target, code: "en")  // pending[1]
+        m.pick(.target, code: "de")  // pending[2] — thay thế pending[1]
+
+        // Đảo ngược thứ tự tới: request MỚI HƠN ("de") trả lời TRƯỚC, request
+        // CŨ HƠN ("en") trả lời SAU.
+        backend.answer(at: 2, targetLang: "de")
+        backend.answer(at: 1, targetLang: "en")
+
+        guard case .done(let result) = m.state else { return XCTFail("expected .done") }
+        XCTAssertEqual(result.targetLang, "de",
+            "the stale 'en' answer arriving after 'de' must not overwrite the newer pick")
     }
 
     func testPickRendersWhatTheBackendActuallyStoredNotAnOptimisticGuess() {

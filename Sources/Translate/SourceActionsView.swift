@@ -42,6 +42,11 @@ public final class SourceActionsModel: ObservableObject {
     /// biết ghi có thành công không. Rollback khi hỏng — một lần ghi không
     /// xảy ra không được trông như đã xảy ra.
     public func toggleSave(text: String) {
+        // Huỷ mọi `isSavedAsync` từ `load()` đang chờ trả lời (minor, final
+        // review) — thiếu dòng này, một câu trả lời CŨ (giá trị trước khi
+        // toggle) tới SAU sẽ ghi đè đúng lên optimistic update này, nút bật
+        // sáng rồi tự tắt lại dù `setSaved` bên dưới đã thành công thật.
+        generation += 1
         let next = !saved
         saved = next
         if !backend.setSaved(text, saved: next) {

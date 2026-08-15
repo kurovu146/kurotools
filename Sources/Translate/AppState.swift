@@ -30,6 +30,16 @@ public final class AppModel: ObservableObject {
     /// nó thay vì capture lại.
     private var lastText: String = ""
 
+    /// Token thế hệ — cùng khuôn `SourceActionsModel.generation`
+    /// (SourceActionsView.swift): đổi ngôn ngữ nhanh hai lần liên tiếp qua
+    /// picker chạy `run()` hai lần, cả hai completion đều khớp
+    /// `LookupState.done`, nên không có cách nào phân biệt "kết quả này còn
+    /// mới không" chỉ từ kiểu của `state` — thiếu token này, completion của
+    /// lần chạy TRƯỚC tới SAU completion của lần chạy SAU sẽ ghi đè kết quả
+    /// đúng bằng một kết quả đã lỗi thời, không còn request nào đang chờ để
+    /// sửa lại (I-6, final review).
+    private var generation = 0
+
     public init(backend: TranslateBackend) {
         self.backend = backend
     }
@@ -51,14 +61,20 @@ public final class AppModel: ObservableObject {
 
     public func run(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Bump TRƯỚC cả early-return: một `run("")` huỷ hẳn lookup đang chờ
+        // của lần `run` trước đó, kẻo completion của nó tới sau và ghi đè lên
+        // `.idle` bằng một kết quả không còn liên quan gì tới màn hình nữa.
+        generation += 1
         guard !trimmed.isEmpty else {
             state = .idle
             return
         }
         lastText = trimmed
+        let thisGeneration = generation
         state = .loading(trimmed)
         backend.lookup(trimmed) { [weak self] result in
-            self?.state = .done(result)
+            guard let self, self.generation == thisGeneration else { return }
+            self.state = .done(result)
         }
     }
 
@@ -74,8 +90,14 @@ public final class AppModel: ObservableObject {
             query = text
             run(text)
         case .needsPermission:
+            // Cùng lý do bump ở đầu `run()` (I-6, final review): một lookup
+            // của lần capture TRƯỚC có thể vẫn đang chờ trả lời — completion
+            // của nó tới sau nhánh này sẽ ghi `.done(...)` đè lên cổng quyền
+            // đang hiện, dù chẳng còn liên quan gì tới nó nữa.
+            generation += 1
             state = .needsPermission
         case .empty:
+            generation += 1
             state = .idle
             query = ""
         }
