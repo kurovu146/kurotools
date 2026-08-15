@@ -16,6 +16,18 @@ public final class TranslateController {
     /// chữ ký AppKit, không phải một type cụ thể.
     private var escapeMonitor: Any?
 
+    /// TRUE từ lúc `showPopup()` gọi `captureAsync` tới khi completion của nó
+    /// chạy (final review, follow-up của I-1) — panel chỉ `show()` BÊN TRONG
+    /// completion đó, nên `panel.isVisible` ở TOÀN BỘ khoảng chờ này vẫn là
+    /// `false` (có thể tới ~1.4s trên đường capture thất bại — main thread
+    /// giờ RẢNH trong lúc đó, đúng mục đích của I-1, nên người dùng có đủ
+    /// thời gian bấm hotkey lần nữa). Không có cờ này, `toggle()` sẽ luôn đọc
+    /// "chưa hiện" và gọi `showPopup()` thêm một lần — hai lần ⌘C giả lập bắn
+    /// vào app đang active, và toggle đi sai chiều (không đóng được lần bấm
+    /// kế tiếp trong khi lần trước còn đang bay). Xem `decideToggle`
+    /// (ToggleDecision.swift) cho bảng chân trị.
+    private var isCapturing = false
+
     public init() {
         self.backend = KTranslateBridge.shared
         self.model = AppModel(backend: backend)
@@ -73,12 +85,19 @@ public final class TranslateController {
     /// `PermissionGateView`), và trước khi Escape nhận được phím
     /// (`installEscapeMonitor`) không có đường đóng nào khác cả. Thiếu
     /// toggle này, bấm hotkey một lần rồi popup nằm lì trên màn hình mãi mãi.
+    ///
+    /// Quyết định qua `decideToggle` (ToggleDecision.swift), không phải
+    /// `if panel.isVisible` trần — bảng chân trị đó có một ô thứ ba
+    /// (`isCapturing`) mà `panel.isVisible` một mình không phân biệt được
+    /// (final review, follow-up của I-1): trong lúc một `captureAsync` đang
+    /// bay, panel vẫn CHƯA hiện, nên logic hai nhánh cũ sẽ luôn coi lần bấm
+    /// thứ hai là "mở" thay vì coi nó là trùng lặp với request đang chạy.
     public func toggle() {
         guard let panel else { return }
-        if panel.isVisible {
-            hidePopup()
-        } else {
-            showPopup()
+        switch decideToggle(isCapturing: isCapturing, isPanelVisible: panel.isVisible) {
+        case .ignore: return
+        case .hide: hidePopup()
+        case .show: showPopup()
         }
     }
 
@@ -96,9 +115,17 @@ public final class TranslateController {
     /// `panel.show()` vẫn nằm trong CÙNG completion, đúng thứ tự capture-
     /// trước-show — tương đương `spawn_blocking { capture_now(); show(&app);
     /// emit(...) }` của bản gốc (`popup.rs::show_with_selection`).
+    ///
+    /// `isCapturing` bật NGAY TRƯỚC khi gọi `captureAsync`, tắt ở ĐẦU
+    /// completion (final review, follow-up của I-1) — completion chỉ có một
+    /// nhánh chung cho cả ba `CaptureOutcome` (`.text`/`.empty`/
+    /// `.needsPermission`), nên tắt ở đây phủ hết mọi đường ra, không riêng
+    /// đường thành công.
     private func showPopup() {
+        isCapturing = true
         backend.captureAsync { [weak self] outcome in
             guard let self else { return }
+            self.isCapturing = false
             self.model.handle(outcome)
             self.panel?.show(near: NSEvent.mouseLocation)
         }
