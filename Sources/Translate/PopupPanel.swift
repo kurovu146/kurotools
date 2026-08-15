@@ -191,13 +191,6 @@ public final class PopupPanel {
     /// chứ không phải DOM).
     public static let contentHeightRange: ClosedRange<CGFloat> = 90...520
 
-    /// Đo `view` (`measuredHeight`, PanelSizing.swift) rồi áp thẳng làm chiều
-    /// cao panel. Điểm gọi DUY NHẤT nối phép đo với `setContentHeight` — để
-    /// không nơi nào tự chép lại khoảng kẹp hay quên gọi một trong hai.
-    public func fitToContent(_ view: NSView) {
-        setContentHeight(measuredHeight(of: view, clampedTo: Self.contentHeightRange))
-    }
-
     /// Giữ MÉP TRÊN cố định khi đổi chiều cao: không có dòng dịch `origin.y`
     /// này, panel sẽ nhảy lên xuống mỗi lần kết quả tra cứu mới tới (vì
     /// `NSWindow` neo theo gốc dưới-trái, còn nội dung phải lớn/nhỏ dần từ

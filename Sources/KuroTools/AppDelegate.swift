@@ -9,7 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let menu = NSMenu()
 
     func applicationDidFinishLaunching(_ note: Notification) {
-        vitals.start()
+        // `vitals.start()` gọi `NSApp.terminate(nil)` khi không mở được SMC —
+        // lệnh đó BẤT ĐỒNG BỘ (chỉ lên lịch thoát), nên thiếu guard này thì
+        // phần dưới vẫn chạy tiếp trên một máy sắp thoát (minor, final
+        // review): đăng ký hotkey toàn cục, chạy migration, mở SQLite.
+        guard vitals.start() else { return }
         vitals.attach(menu: menu)
 
         let lookupItem = NSMenuItem(title: "Tra từ đang chọn  ⌘⇧D",

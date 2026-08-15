@@ -164,10 +164,15 @@ public struct PermissionGateView: View {
         // Bất biến 4 (task-16-brief.md): bản React tắt hẳn dismiss-on-blur
         // trong lúc màn hình này hiện, vì panel Tauri CÓ activate và blur khi
         // System Settings lấy focus sẽ ẩn mất nó ngay lúc người dùng vừa bấm.
-        // Panel của KuroTools là NSPanel `.nonactivatingPanel` (PopupPanel.swift)
-        // — nó không bao giờ trở thành key window nên blur-to-hide vốn KHÔNG
-        // TỒN TẠI ở đây, cơ chế đó không có gì để tắt. Cố tình không thêm bất
-        // kỳ auto-hide nào (onDeactivate, click-outside, v.v.) thay vào chỗ
-        // đó — thêm một cái sẽ tái tạo đúng lỗi bản React phải vá.
+        // Panel của KuroTools LÀ NSPanel `.nonactivatingPanel` (PopupPanel.swift)
+        // và CÓ trở thành key window — `PopupPanel.show()` gọi `panel.makeKey()`
+        // (commit `c2829c6`), sửa lại khẳng định sai ở đây (M-4, final
+        // review). Lý do đúng blur-to-hide không tồn tại: `hidesOnDeactivate`
+        // bị đặt `false` một cách CỐ Ý trên panel đó, và không có handler nào
+        // gắn vào resignKey/deactivate để gọi `hide()` — không phải vì panel
+        // không bao giờ thành key. Quyết định vẫn đúng, chỉ lý do trước đây
+        // sai. Cố tình không thêm bất kỳ auto-hide nào (onDeactivate,
+        // click-outside, v.v.) thay vào chỗ đó — thêm một cái sẽ tái tạo đúng
+        // lỗi bản React phải vá.
     }
 }

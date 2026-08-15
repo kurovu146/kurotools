@@ -7,8 +7,9 @@ public enum DatabaseMigration {
     static let currentBundleID = "com.kurovu.kurotools"
     static let legacyBundleIDs = ["com.kurovu.ktranslate", "com.kurovu.tra"]
     static let databaseName = "ktranslate.db"
-    /// SQLite giữ trạng thái ở ba file. Copy mỗi `.db` là mời một db hỏng.
-    static let companionSuffixes = ["", "-wal", "-shm"]
+    /// SQLite giữ trạng thái ở ba file — `.db` chính được copy riêng ở dưới
+    /// (kiểm lỗi, không nuốt); hai file này là companion, best-effort.
+    static let companionSuffixes = ["-wal", "-shm"]
 
     public static func resolveDatabase(appSupport: URL, fileManager: FileManager = .default) -> URL {
         let newDir = appSupport.appendingPathComponent(currentBundleID)
@@ -23,6 +24,27 @@ public enum DatabaseMigration {
             let legacyDir = appSupport.appendingPathComponent(legacy)
             guard fileManager.fileExists(atPath: legacyDir.appendingPathComponent(databaseName).path)
             else { continue }
+
+            // File `.db` CHÍNH: kiểm kết quả, đừng nuốt (M-2, final review).
+            // `try?` cũ coi một lần copy hỏng-giữa-chừng (đĩa đầy...) y hệt
+            // một lần thành công — log "migrated" là một lời NÓI DỐI, và tệ
+            // hơn, file dở dang copyItem để lại ở `newDB` khiến guard
+            // `fileExists` phía trên coi migration đã XONG mãi mãi ở lần gọi
+            // kế tiếp, không bao giờ thử lại. Dọn phần dở dang trước khi trả
+            // về để lần gọi sau còn thấy `newDB` chưa tồn tại.
+            let mainFrom = legacyDir.appendingPathComponent(databaseName)
+            let mainTo = newDir.appendingPathComponent(databaseName)
+            do {
+                try fileManager.copyItem(at: mainFrom, to: mainTo)
+            } catch {
+                try? fileManager.removeItem(at: mainTo)
+                NSLog("KuroTools: failed to migrate database from \(legacy): \(error)")
+                return newDB
+            }
+
+            // `-wal`/`-shm` là companion, best-effort: thiếu chúng làm mất vài
+            // giao dịch gần nhất, không làm hỏng file `.db` chính vừa copy
+            // thành công ở trên.
             for suffix in companionSuffixes {
                 let from = legacyDir.appendingPathComponent(databaseName + suffix)
                 let to = newDir.appendingPathComponent(databaseName + suffix)

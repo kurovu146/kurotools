@@ -26,7 +26,13 @@ public final class TranslateController {
     /// `DatabaseMigration.resolveDatabase`, Task 19); hàm này không tự resolve,
     /// chỉ nhận sẵn qua tham số.
     public func start(dbPath: URL) {
-        _ = KTranslateBridge.shared.start(dbPath: dbPath)
+        // M-1 (final review): trước bản vá, lỗi ở đây bị nuốt hoàn toàn — db
+        // hỏng thì picker vẫn mở được (config load fail vẫn có fallback,
+        // AppState.swift), nhưng CHỌN NGÔN NGỮ XONG KHÔNG GÌ XẢY RA, mãi mãi,
+        // không một dòng log nào để bắt đầu debug từ đâu.
+        if !KTranslateBridge.shared.start(dbPath: dbPath) {
+            NSLog("KuroTools: kt_init failed for \(dbPath.path) — lookups will silently do nothing")
+        }
         model.loadConfig()
 
         let root = RootView(
@@ -36,15 +42,15 @@ public final class TranslateController {
         // `DraggableHostingView`, không phải `NSHostingView` trần — đây CHÍNH
         // LÀ content view Task 10-11 để trống chờ (PanelSizing.swift): popup
         // không có titlebar, nên panel phải tự làm tay cầm kéo qua chính view
-        // này. KHÔNG dùng view này làm nguồn đo chiều cao (`fitToContent`) —
-        // xem chú thích bên dưới.
+        // này. KHÔNG dùng view này làm nguồn đo chiều cao — xem chú thích
+        // bên dưới.
         let hosting = DraggableHostingView(rootView: root)
         panel = PopupPanel(content: hosting)
 
-        // Cố ý KHÔNG gọi `panel.fitToContent(hosting)` ở đây. `hosting` là
-        // view TRÊN CÙNG mà `PopupPanel.init` đã pin đủ 4 cạnh vào lớp
-        // vibrancy (PopupPanel.swift:63-70) — đo NÓ là một vòng lặp, không
-        // phải một phép đo (đúng cảnh báo trong doc-comment
+        // `hosting` KHÔNG BAO GIỜ được dùng để đo chiều cao. Nó là view TRÊN
+        // CÙNG mà `PopupPanel.init` đã pin đủ 4 cạnh vào lớp vibrancy
+        // (PopupPanel.swift:63-70) — đo NÓ là một vòng lặp, không phải một
+        // phép đo (đúng cảnh báo trong doc-comment
         // `HeightMeasuringHost`, RootView.swift): `frame.height` của nó luôn
         // bằng đúng chiều cao panel hiện tại. View đo được đúng cách là
         // `NSHostingView` THỨ HAI mà `HeightMeasuringHost` tự dựng bên trong

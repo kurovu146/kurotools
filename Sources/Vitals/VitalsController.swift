@@ -25,14 +25,21 @@ public final class VitalsController: NSObject, NSMenuDelegate {
     /// AppDelegate của KuroTools chứ không phải controller này.
     public var extraItems: [NSMenuItem] = []
 
-    public func start() {
+    /// Returns whether startup actually succeeded. `NSApp.terminate(nil)` on
+    /// the failure path is ASYNCHRONOUS — it only schedules the quit, it does
+    /// not stop execution here — so the caller must check this before doing
+    /// anything else that assumes a live app (minor, final review): without
+    /// it, AppDelegate used to plough on into `translate.start(...)` on a
+    /// machine that is about to quit, registering the global hotkey, running
+    /// the database migration, and opening SQLite for no reason.
+    public func start() -> Bool {
         guard let smc = try? SMC() else {
             let a = NSAlert()
             a.messageText = "KuroTools"
             a.informativeText = "Cannot open SMC (AppleSMC). The app will quit."
             a.runModal()
             NSApp.terminate(nil)
-            return
+            return false
         }
         reader = SensorReader(smc: smc, cpu: CPULoadSampler(), mem: MemorySampler())
         fan = FanController(commander: HelperClient(), threshold: settings.thresholdC, ttlSeconds: 6)
@@ -41,6 +48,7 @@ public final class VitalsController: NSObject, NSMenuDelegate {
 
         // Warm the SMC key/info caches so the first menu open is instant.
         lastSnapshot = reader.snapshot()
+        return true
     }
 
     /// Menu giờ dùng chung với module Translate, nên chủ sở hữu menu là
