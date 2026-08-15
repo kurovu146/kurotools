@@ -19,11 +19,18 @@ public final class PopupPanel {
     /// không mở đè ngay dưới con trỏ.
     private static let cursorGap: CGFloat = 12
 
+    /// Bề rộng panel — CỐ ĐỊNH, không tự co giãn như chiều cao (khớp máy tra
+    /// cứu hệ thống và bản Tauri cũ). `HeightMeasuringHost` (RootView.swift)
+    /// phải đo với ĐÚNG width này — thiếu ràng buộc đó, `NSHostingView` đo với
+    /// width gần-0 (frame khởi tạo `.zero`), `Text` wrap ở gần như mọi ký tự
+    /// thay vì đúng bề rộng panel thật (Task 21 report, câu hỏi 1).
+    public static let contentWidth: CGFloat = 420
+
     public var isVisible: Bool { panel.isVisible }
 
     public init(content: NSView) {
         panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 160),
+            contentRect: NSRect(x: 0, y: 0, width: Self.contentWidth, height: 160),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
         panel.level = .floating

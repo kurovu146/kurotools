@@ -163,12 +163,27 @@ private struct HeightMeasuringHost<Content: View>: NSViewRepresentable {
     let onHeightChange: (CGFloat) -> Void
     @ViewBuilder let content: () -> Content
 
-    func makeNSView(context: Context) -> NSHostingView<Content> {
-        NSHostingView(rootView: content())
+    /// Chốt width bằng ĐÚNG bề rộng panel thật (`PopupPanel.contentWidth`)
+    /// TRƯỚC khi đo. `.frame(width:)` là ràng buộc CỨNG của SwiftUI — khác
+    /// với việc tự tay gán `NSHostingView.frame.size.width`, cách này không lệ
+    /// thuộc AppKit có tự đặt lại `frame` của view theo layout ngoài hay
+    /// không (view này vốn "không bị constraint nào của cha ép giãn", xem
+    /// doc-comment `HeightMeasuringHost` bên dưới — nghĩa là cũng không có gì
+    /// tự gán width đúng cho nó nếu không làm ở đây). Thiếu dòng này:
+    /// `NSHostingView` khởi tạo `frame` rỗng (`.zero`), `Text` bên trong đo
+    /// với width không ràng buộc — wrap sai (Task 21 report, câu hỏi 1).
+    /// `AnyView` để type-erase: `.frame()` trả về `some View`, không phải lại
+    /// `Content`, nên `NSHostingView<Content>` không nhận trực tiếp được.
+    private func sized(_ view: Content) -> AnyView {
+        AnyView(view.frame(width: PopupPanel.contentWidth, alignment: .leading))
     }
 
-    func updateNSView(_ nsView: NSHostingView<Content>, context: Context) {
-        nsView.rootView = content()
+    func makeNSView(context: Context) -> NSHostingView<AnyView> {
+        NSHostingView(rootView: sized(content()))
+    }
+
+    func updateNSView(_ nsView: NSHostingView<AnyView>, context: Context) {
+        nsView.rootView = sized(content())
         let height = pickerOpen
             ? PopupPanel.contentHeightRange.upperBound
             : measuredHeight(of: nsView, clampedTo: PopupPanel.contentHeightRange)
