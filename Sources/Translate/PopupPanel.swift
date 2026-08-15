@@ -42,6 +42,14 @@ public final class PopupPanel {
 
     public var isVisible: Bool { panel.isVisible }
 
+    /// TRUE khi panel này đang là key window — tức đang thật sự nhận bàn
+    /// phím. Khác `isVisible`: panel `.nonactivatingPanel` có thể VẪN hiện
+    /// trên màn hình (không tự ẩn khi mất key — `hidesOnDeactivate = false`)
+    /// trong lúc một cửa sổ KHÁC của CHÍNH APP này (cửa sổ tiến trình của
+    /// Vitals, hộp thoại xác nhận Kill) đã lấy mất key — dùng để phân biệt
+    /// "popup đang hiện" với "phím vừa gõ thuộc về popup" (I-5, final review).
+    public var isKeyWindow: Bool { panel.isKeyWindow }
+
     public init(content: NSView) {
         panel = KeyablePanel(
             contentRect: NSRect(x: 0, y: 0, width: Self.contentWidth, height: 160),
@@ -101,19 +109,22 @@ public final class PopupPanel {
     /// trên bàn nhiều màn hình — cảm giác y hệt hotkey không làm gì cả. Con
     /// trỏ là đại diện tốt nhất cho "người dùng đang ở đâu": văn bản vừa
     /// chọn nằm ngay dưới nó.
+    /// Màn hình popup đang mở trên — ghim lại ở đây (không dò lại theo
+    /// `panel.frame` mỗi lần) để `clampToVisibleFrame()` dùng đúng MỘT màn
+    /// hình xuyên suốt vòng đời một lần hiện, kể cả khi `setContentHeight`
+    /// gọi lại nó sau khi panel đã bị kẹp sát mép — dò lại lúc đó dễ nhầm
+    /// sang màn hình bên cạnh (I-3, final review).
+    private var currentScreen: NSScreen?
+
     public func show(near point: CGPoint) {
         let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
-        if let screen {
-            let visible = screen.visibleFrame
+        currentScreen = screen
+        if screen != nil {
             let size = panel.frame.size
-            var origin = CGPoint(x: point.x + Self.cursorGap, y: point.y - size.height - Self.cursorGap)
-            // Kẹp cả hai chiều, `min` trước `max`: trên màn hình nhỏ hơn
-            // panel, hai cận chéo nhau và `max` phải thắng để panel không
-            // tràn ra ngoài mép trái/dưới.
-            origin.x = max(min(origin.x, visible.maxX - size.width), visible.minX)
-            origin.y = max(min(origin.y, visible.maxY - size.height), visible.minY)
+            let origin = CGPoint(x: point.x + Self.cursorGap, y: point.y - size.height - Self.cursorGap)
             panel.setFrameOrigin(origin)
         }
+        clampToVisibleFrame()
 
         // Áp lại MỖI LẦN show, không phải một lần lúc khởi tạo — app nằm ở
         // tray nhiều ngày liền và Tuấn có thể đổi giao diện hệ thống giữa
@@ -149,6 +160,30 @@ public final class PopupPanel {
 
     public func hide() { panel.orderOut(nil) }
 
+    /// Kẹp origin HIỆN TẠI của panel vào `visibleFrame` của `currentScreen`.
+    /// Dùng chung bởi `show()` (lần mở đầu tiên) và `setContentHeight()`
+    /// (I-3, final review) — trước bản vá này chỉ `show()` kẹp, bằng kích
+    /// thước panel LÚC ĐÓ (160pt mặc định hoặc chiều cao của lần hiện trước).
+    /// Layout SwiftUI đo chiều cao thật bất đồng bộ và báo về sau qua
+    /// `onHeightChange` → `setContentHeight`, nên chuỗi hỏng là: kết quả
+    /// NGẮN hiện trước → panel bị kẹp sát mép dưới màn hình ở `show()` →
+    /// kết quả DÀI tới sau → `setContentHeight` phóng to panel LÊN TRÊN từ
+    /// đúng cái mép dưới đó mà không kẹp lại — quá nửa panel nằm dưới mép
+    /// màn hình, không với chuột tới được. Gọi lại hàm này ở cuối
+    /// `setContentHeight` đóng đúng lỗ đó.
+    private func clampToVisibleFrame() {
+        guard let screen = currentScreen else { return }
+        let visible = screen.visibleFrame
+        var origin = panel.frame.origin
+        let size = panel.frame.size
+        // Kẹp cả hai chiều, `min` trước `max`: trên màn hình nhỏ hơn panel,
+        // hai cận chéo nhau và `max` phải thắng để panel không tràn ra ngoài
+        // mép trái/dưới.
+        origin.x = max(min(origin.x, visible.maxX - size.width), visible.minX)
+        origin.y = max(min(origin.y, visible.maxY - size.height), visible.minY)
+        panel.setFrameOrigin(origin)
+    }
+
     /// Chiều cao nội dung được phép co giãn tới. Thấp hơn `90` panel trông vỡ
     /// layout; cao hơn `520` phải cuộn thay vì phình thêm mãi — theo đúng máy
     /// tra cứu hệ thống (`MAX_HEIGHT`/`MIN_HEIGHT` ở
@@ -172,5 +207,8 @@ public final class PopupPanel {
         frame.origin.y += frame.height - h
         frame.size.height = h
         panel.setFrame(frame, display: true)
+        // I-3 (final review): chiều cao mới có thể đẩy panel ra ngoài
+        // `visibleFrame` mà `show()` đã kẹp bằng kích thước CŨ — kẹp lại.
+        clampToVisibleFrame()
     }
 }

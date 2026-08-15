@@ -17,19 +17,44 @@ public struct RootView: View {
     }
 
     public var body: some View {
-        // `HeightMeasuringHost` bọc ĐÚNG phần nội dung cần đo — không phải
-        // view gốc mà một tầng trên (Task 18, PopupPanel.init) sẽ pin đủ 4
-        // cạnh vào vibrancy. Xem cảnh báo ở khai báo view đó bên dưới.
-        HeightMeasuringHost(pickerOpen: model.pickerOpen, onHeightChange: onHeightChange) {
-            PopupContent(model: model, backend: backend)
-                // Tương đương `inert={pickerOpen}` của bản React: overlay bên
-                // dưới không có focus trap (xem doc-comment
-                // LanguagePickerView), nên khi picker mở, lớp nội dung này
-                // phải hết tương tác VÀ biến mất khỏi cây accessibility — nếu
-                // không, một lần Shift+Tab đưa focus xuống nút phía sau scrim
-                // và Enter ở đó phát âm/lưu một từ từ phía sau picker.
-                .allowsHitTesting(!model.pickerOpen)
-                .accessibilityHidden(model.pickerOpen)
+        // `ScrollView` bọc NGOÀI `HeightMeasuringHost` (I-4, final review) —
+        // doc-comment `contentHeightRange` (PopupPanel.swift) hứa nội dung
+        // cao hơn 520 phải cuộn thay vì phình thêm mãi, nhưng trước bản vá
+        // này không có `ScrollView` nào trong cây thật cả: panel chỉ cao tới
+        // 520 (kẹp ở `setContentHeight`) trong khi nội dung SwiftUI phía
+        // trong vẫn hiện đủ chiều cao tự nhiên của nó rồi bị `masksToBounds`
+        // của lớp vibrancy (PopupPanel.init) cắt cụt — phần dư không có cách
+        // nào cuộn tới.
+        //
+        // 🔑 PHẢI nằm NGOÀI `HeightMeasuringHost`, không phải bên trong nó.
+        // `HeightMeasuringHost` đo chiều cao TỰ NHIÊN của `PopupContent` bằng
+        // cách không ép nó co theo bất kỳ constraint nào của cha (xem
+        // doc-comment view đó) — nếu `ScrollView` chen vào GIỮA
+        // `HeightMeasuringHost` và `PopupContent`, phép đo sẽ đo chính
+        // `ScrollView` (thứ tự co giãn theo khung được cấp, không theo nội
+        // dung), tái tạo đúng bug vòng lặp đo đã sửa ở commit `352ae66`. Đặt
+        // ở NGOÀI thì ngược lại tự nhiên: một `ScrollView` vốn cấp chiều cao
+        // KHÔNG GIỚI HẠN cho con dọc theo trục cuộn của nó, nên
+        // `HeightMeasuringHost` bên trong vẫn tự do đo đúng kích thước tự
+        // nhiên như trước — còn khung NGOÀI của `ScrollView` thì bị kẹp bởi
+        // panel thật (qua chuỗi Auto Layout đã pin `hosting` vào vibrancy,
+        // PopupPanel.init), nên nội dung dư ra 520 giờ cuộn được thay vì bị
+        // cắt câm.
+        ScrollView {
+            // `HeightMeasuringHost` bọc ĐÚNG phần nội dung cần đo — không phải
+            // view gốc mà một tầng trên (Task 18, PopupPanel.init) sẽ pin đủ 4
+            // cạnh vào vibrancy. Xem cảnh báo ở khai báo view đó bên dưới.
+            HeightMeasuringHost(pickerOpen: model.pickerOpen, onHeightChange: onHeightChange) {
+                PopupContent(model: model, backend: backend)
+                    // Tương đương `inert={pickerOpen}` của bản React: overlay bên
+                    // dưới không có focus trap (xem doc-comment
+                    // LanguagePickerView), nên khi picker mở, lớp nội dung này
+                    // phải hết tương tác VÀ biến mất khỏi cây accessibility — nếu
+                    // không, một lần Shift+Tab đưa focus xuống nút phía sau scrim
+                    // và Enter ở đó phát âm/lưu một từ từ phía sau picker.
+                    .allowsHitTesting(!model.pickerOpen)
+                    .accessibilityHidden(model.pickerOpen)
+            }
         }
         // `.overlay()`, không phải `ZStack` chứa cả hai: overlay không tham
         // gia vào kích thước của view nó phủ lên, nên nó nằm NGOÀI cây được
