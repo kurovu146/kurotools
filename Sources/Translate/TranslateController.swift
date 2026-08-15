@@ -129,9 +129,21 @@ public final class TranslateController {
     /// `model.escape()` một lần DUY NHẤT, dứt khoát, thay vì để sự kiện lọt
     /// xuống gọi lại lần hai (vô hại nếu có xảy ra vì `escape()`/`dismissed()`
     /// đều idempotent, nhưng không dựa vào đó làm đường chính).
+    ///
+    /// Guard theo `panel?.isKeyWindow`, KHÔNG PHẢI `panel?.isVisible` (I-5,
+    /// final review) — `local monitor` thấy phím của MỌI cửa sổ trong CHÍNH
+    /// app này, không riêng popup: panel `.nonactivatingPanel` không tự ẩn
+    /// khi mất key (`hidesOnDeactivate = false`, PopupPanel.swift), nên nó có
+    /// thể VẪN `isVisible == true` trong lúc người dùng đang gõ ở nơi khác
+    /// của CÙNG app — ô tìm kiếm của cửa sổ tiến trình Vitals
+    /// (`ProcessWindowController.swift`), hay hộp thoại xác nhận Kill process
+    /// của chính cửa sổ đó. Guard cũ nuốt Escape của TOÀN APP bất cứ khi nào
+    /// popup còn hiện: ô tìm kiếm không xoá được bằng Escape, và tệ hơn, hộp
+    /// thoại "Kill process?" — `NSAlert.runModal()` — không huỷ được bằng
+    /// Escape. `isKeyWindow` chỉ đúng khi phím này thật sự thuộc về panel.
     private func installEscapeMonitor() {
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.keyCode == UInt16(kVK_Escape), self.panel?.isVisible == true else {
+            guard let self, event.keyCode == UInt16(kVK_Escape), self.panel?.isKeyWindow == true else {
                 return event
             }
             if !self.model.escape() {
