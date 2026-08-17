@@ -594,6 +594,8 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue(status.contains("bị app khác giữ"), "thấy: \(status)")
         XCTAssertTrue(status.contains("đang chạy \(old.displayString)"),
                       "và nói rõ cái đang thật sự chạy lúc này, thấy: \(status)")
+        XCTAssertTrue(status.contains("có thể sẽ không hoạt động"),
+                      "app không biết trước app kia có còn giữ \(HotkeyCombo.default.displayString) tới lần khởi động sau không — không được khẳng định chắc, thấy: \(status)")
         assertNoFalseComfort(model)
     }
 

@@ -352,12 +352,28 @@ public final class SettingsModel: ObservableObject {
     /// Nửa sau của dòng phản hồi sau khi xoá sạch, nói ĐÚNG chuyện gì đã xảy
     /// ra với phím tắt.
     ///
-    /// KHÔNG rẽ nhánh theo `hotkeyIsRegistered`: `applyHotkey` ROLLBACK khi tổ
-    /// hợp mới bị chiếm — nó đăng ký lại tổ hợp CŨ và đặt cờ theo kết quả lần
-    /// đăng ký lại đó, gần như luôn `true`. Rẽ theo cờ ấy sẽ khoe "phím tắt
-    /// trở lại ⌃⌥J", gọi tên đúng tổ hợp mà spec §6 mức 3 vừa bảo phải bỏ.
-    /// Câu hỏi đúng là "tổ hợp mặc định có thật sự thành tổ hợp hiện tại
-    /// không", tức `hotkey == .default`.
+    /// Câu hỏi ở đây có HAI biến, và không vị từ đơn nào trả lời được nó —
+    /// hai lần vá trước mỗi lần chọn một vị từ, và mỗi cái nói dối ở đúng cái
+    /// ô mà cái kia đúng:
+    ///
+    /// - Chỉ `hotkeyIsRegistered`: `applyHotkey` ROLLBACK khi tổ hợp mới bị
+    ///   chiếm — nó đăng ký lại tổ hợp CŨ và đặt cờ theo kết quả lần đăng ký
+    ///   lại đó, gần như luôn `true`. Người dùng có tổ hợp riêng vì thế được
+    ///   khoe "phím tắt trở lại ⌃⌥J", gọi tên đúng tổ hợp mà spec §6 mức 3
+    ///   vừa bảo phải bỏ.
+    /// - Chỉ `hotkey == .default`: người dùng CHƯA từng đổi phím tắt và ⇧⌘D
+    ///   đang bị app khác giữ thì vị từ này vẫn đúng, nên nhánh thành công
+    ///   bắn — trong khi cảnh báo cam ngay phía trên trong tab Chung nói phím
+    ///   tắt KHÔNG hoạt động. Hai câu mâu thuẫn trong cùng một cửa sổ.
+    ///
+    /// Nên thân hàm liệt kê cả bốn ô của
+    /// `(hotkey == .default) × hotkeyIsRegistered`, và **chỉ ô (đúng, đúng)
+    /// mới là thành công**. Ba ô còn lại nói ba chuyện khác nhau vì trạng thái
+    /// của chúng khác nhau thật: (default, chưa đăng ký) và (không default,
+    /// chưa đăng ký) đều là "không có phím tắt nào đang sống", còn
+    /// (không default, đã đăng ký) là "tổ hợp cũ vẫn đang chạy, nhưng cấu hình
+    /// đã về mặc định". Bốn ô đó có bốn test mang đúng tên ô trong
+    /// `SettingsModelTests` — đừng gộp lại thành một vị từ nữa.
     private func hotkeyOutcomeAfterReset() -> String {
         let restored = HotkeyCombo.default.displayString
         // Liệt kê thẳng cả BỐN ô của `(tổ hợp mặc định có phải tổ hợp hiện tại
@@ -383,12 +399,14 @@ public final class SettingsModel: ObservableObject {
             """
         case (false, true):
             // Controller đã rollback về tổ hợp cũ và tổ hợp đó vẫn sống — nói
-            // rõ cả thứ đang chạy NGAY BÂY GIỜ lẫn chuyện lần khởi động sau
-            // sẽ không còn nó.
+            // rõ cả thứ đang chạy NGAY BÂY GIỜ lẫn chuyện lần khởi động sau.
+            // "CÓ THỂ sẽ không hoạt động", không phải "sẽ không": app đang giữ
+            // \(restored) có thể đã thoát trước lần khởi động đó, và app này
+            // không có cách nào biết trước điều ấy.
             return """
             cấu hình phím tắt đã về \(restored) nhưng \(restored) đang bị app khác giữ — \
-            hiện vẫn đang chạy \(hotkey.displayString), và lần khởi động sau phím tắt sẽ \
-            không hoạt động. Chọn tổ hợp khác trong tab Chung.
+            hiện vẫn đang chạy \(hotkey.displayString), và lần khởi động sau phím tắt có thể \
+            sẽ không hoạt động. Chọn tổ hợp khác trong tab Chung.
             """
         }
     }
