@@ -31,6 +31,9 @@ private final class StubBackend: TranslateBackend {
     var clearHistorySucceeds = true
     var clearSavedWordsSucceeds = true
     var openStoreSucceeds = true
+    /// Ca "store không chịu đóng" — xem `DataResetTests`. Mặc định `true` để
+    /// mọi test cũ đi qua nhánh thành công như trước.
+    var closeStoreSucceeds = true
     var openedPaths: [URL] = []
     var config: LangConfig?
     /// `false` = `kt_set_lang_config` trả nil (lưu hỏng) trong khi `langConfig()`
@@ -68,7 +71,7 @@ private final class StubBackend: TranslateBackend {
     func closeStore() -> Bool {
         calls.append("close")
         journal?.entries.append("close")
-        return true
+        return closeStoreSucceeds
     }
     func openStore(at dbPath: URL) -> Bool {
         calls.append("open")
@@ -439,6 +442,35 @@ final class SettingsModelTests: XCTestCase {
 
         XCTAssertTrue(model.needsRestart, "không mở lại được store thì app không còn db nào")
         XCTAssertEqual(model.dbPath, dbPath, "đừng khẳng định db nằm ở chỗ mà nó không mở được")
+    }
+
+    /// 🔑 Fix wave cuối M2 (FIX 4), ở tầng UI. `.everything` có HAI kiểu thất
+    /// bại và một `Bool` chỉ nói được một câu — câu "Đã xoá sạch nhưng không
+    /// mở lại được db", đúng cho ca mở lại hỏng và SAI theo hướng nguy hiểm
+    /// nhất cho ca này: người dùng tin dữ liệu đã mất trong khi nó còn nguyên,
+    /// và cũng không được bảo phải làm gì để nó thật sự mất.
+    func testAWipeThatCannotCloseTheStoreSaysNothingWasRemoved() {
+        let backend = StubBackend()
+        backend.closeStoreSucceeds = false
+        let spy = SpyTranslate()
+        let model = makeModel(backend: backend, translate: spy)
+        defaults.set(42, forKey: "thresholdC")
+
+        model.reset(.everything)
+
+        let status = model.status ?? ""
+        XCTAssertFalse(status.contains("Đã xoá sạch"),
+                       "chưa xoá được gì cả — nói đã xoá là câu sai nguy hiểm nhất, thấy: \(status)")
+        XCTAssertTrue(status.contains("vẫn nguyên"),
+                      "phải nói rõ dữ liệu còn đó, thấy: \(status)")
+        XCTAssertFalse(model.needsRestart,
+                       "`false` từ closeStore nghĩa là CHƯA đóng được gì — store vẫn đang mở")
+        XCTAssertEqual(model.dbPath, dbPath, "db không đi đâu cả")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dbPath.path))
+        XCTAssertEqual(defaults.integer(forKey: "thresholdC"), 42,
+                       "preference cũng phải còn nguyên — xoá nửa vời còn tệ hơn không xoá")
+        XCTAssertEqual(spy.applied, [],
+                       "không đưa hotkey về mặc định khi chưa xoá gì: cấu hình cũ vẫn còn trong preference")
     }
 
     func testAFailedHistoryClearIsReportedButNeedsNoRestart() {

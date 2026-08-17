@@ -301,8 +301,9 @@ public final class SettingsModel: ObservableObject {
         // `kt_close`): popup phải đóng trước khi store bị đóng.
         if scope == .everything { translate.hidePopup() }
 
-        let succeeded = DataReset(backend: backend, defaults: defaults)
+        let outcome = DataReset(backend: backend, defaults: defaults)
             .perform(scope, dbPath: dbPath, defaultDBPath: defaultDBPath, bundleID: bundleID)
+        let succeeded = outcome == .done
 
         switch scope {
         case .history:
@@ -312,12 +313,22 @@ public final class SettingsModel: ObservableObject {
             if succeeded { storeIsOpen() }
             status = succeeded ? "Đã xoá từ đã lưu." : "Không xoá được từ đã lưu — db chưa đổi gì."
         case .everything:
-            guard succeeded else {
-                // `perform` chỉ trả `false` ở mức này khi mở lại store thất
-                // bại — file đã bị xoá, không còn db nào đang mở.
+            switch outcome {
+            case .failedNothingRemoved:
+                // Store không chịu đóng. Theo giao kèo `StoreMaintaining`,
+                // `false` nghĩa là CHƯA đóng được gì — db, companion và
+                // preference còn nguyên, và store nhiều khả năng vẫn đang mở,
+                // nên KHÔNG bật `needsRestart`. Nói "đã xoá sạch" ở đây là
+                // một câu sai theo hướng nguy hiểm nhất: người dùng tin dữ
+                // liệu đã mất và không tra lại nữa.
+                status = "Không đóng được db nên chưa xoá gì cả — dữ liệu vẫn nguyên. Thoát và mở lại KuroTools rồi thử lại."
+                return
+            case .removedButStoreClosed:
                 needsRestart = true
                 status = "Đã xoá sạch nhưng không mở lại được db. Hãy thoát và mở lại KuroTools."
                 return
+            case .done:
+                break
             }
             // 🔑 `perform` mở lại store ở `defaultDBPath` (nó vừa xoá cả
             // domain `UserDefaults`, tức xoá luôn override vị trí db), nhưng
