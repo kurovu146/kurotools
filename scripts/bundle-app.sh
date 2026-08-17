@@ -5,8 +5,12 @@ APP="$ROOT/KuroTools.app"
 IDENTITY="${KUROTOOLS_SIGNING_IDENTITY:-M97RK4Q68S}"
 export MACOSX_DEPLOYMENT_TARGET=13.0
 
-# App đang chạy sẽ giữ file và làm bước ký thất bại.
-pkill -x KuroTools || true
+# App đang chạy sẽ giữ file và làm bước ký thất bại — nhưng CHỈ kill đúng bản
+# build từ $APP. `pkill -x KuroTools` từng match theo TÊN process (không theo
+# đường dẫn), nên nó giết luôn bản đã CÀI ở /Applications (LaunchAgent quản
+# lý) y hệt bản repo-local này — bản cài đó phải sống sót qua một lần build ở
+# đây, "khỏi bị giết" không phải nhờ KeepAlive hồi sinh nó may mắn.
+pkill -f "$APP/Contents/MacOS/KuroTools" || true
 
 # ⚠️ ĐI QUA `make rust`, đừng gọi cargo + swift build tay. Makefile giữ lá chắn
 # stamp-hash: nếu .a đổi thì nó xoá .build để ép relink. Cách cũ (`touch` một
