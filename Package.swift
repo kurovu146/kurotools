@@ -30,11 +30,13 @@ let package = Package(
                 .linkedFramework("Carbon"),
             ]
         ),
+        .target(name: "Settings", dependencies: ["Translate", "Vitals"], path: "Sources/Settings"),
         .executableTarget(name: "KuroTools", dependencies: ["Vitals", "Translate"], path: "Sources/KuroTools"),
         .testTarget(name: "SMCKitTests", dependencies: ["SMCKit"]),
         .testTarget(name: "SystemStatsTests", dependencies: ["SystemStats"]),
         .testTarget(name: "SensorReaderTests", dependencies: ["SensorReader"]),
         .testTarget(name: "FanControlTests", dependencies: ["FanControl"]),
         .testTarget(name: "TranslateTests", dependencies: ["Translate"]),
+        .testTarget(name: "SettingsTests", dependencies: ["Settings"]),
     ]
 )
