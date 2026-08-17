@@ -24,8 +24,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT/.build/release/KuroTools" "$APP/Contents/MacOS/"
 cp "$ROOT/Sources/KuroTools/Info.plist" "$APP/Contents/"
 
+# Nguồn phải neo vào "$ROOT" như mọi đường dẫn khác trong script: chạy từ một
+# cwd khác thì `cp` tương đối hỏng dưới `set -e` — SAU khi `rm -rf "$APP"` ở
+# trên đã xoá bundle cũ, để lại một bản cài biến mất và không có gì thay thế.
 mkdir -p "$APP/Contents/Library/LaunchAgents"
-cp Sources/KuroTools/LaunchAgent.plist "$APP/Contents/Library/LaunchAgents/com.kuro.kurotools.app.plist"
+cp "$ROOT/Sources/KuroTools/LaunchAgent.plist" "$APP/Contents/Library/LaunchAgents/com.kuro.kurotools.app.plist"
 
 # ⚠️ PHẢI là bước ghi cuối cùng vào $APP — bước nào copy/ghi thêm SAU đây sẽ nằm ngoài resource seal, và "valid on disk" vẫn báo im lặng dù nội dung đã đổi sau khi ký.
 # Chữ ký ỔN ĐỊNH ngăn mỗi lần rebuild thu hồi quyền Accessibility.

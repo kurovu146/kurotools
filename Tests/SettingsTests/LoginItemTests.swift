@@ -85,5 +85,15 @@ final class LoginItemTests: XCTestCase {
             "đích copy trong bundle-app.sh phải kết thúc bằng đúng " +
             "SMAppServiceLoginItem.plistName (\"\(SMAppServiceLoginItem.plistName)\"); " +
             "dòng thật đọc được: \(copyLine)")
+
+        // Fix wave cuối M2 (FIX 5): NGUỒN cũng phải neo vào "$ROOT". Bản trước
+        // dùng đường dẫn tương đối trong một script mà mọi chỗ khác đều tuyệt
+        // đối — chạy từ một cwd khác thì `cp` hỏng dưới `set -e`, và nó hỏng
+        // SAU khi `rm -rf "$APP"` đã xoá bundle cũ: bản cài biến mất, không có
+        // gì thay thế. Test cũ chỉ ràng buộc ĐÍCH nên không thấy gì.
+        XCTAssertTrue(
+            copyLine.contains("\"$ROOT/Sources/KuroTools/LaunchAgent.plist\""),
+            "nguồn copy phải là \"$ROOT/Sources/KuroTools/LaunchAgent.plist\" (tuyệt đối); " +
+            "dòng thật đọc được: \(copyLine)")
     }
 }
