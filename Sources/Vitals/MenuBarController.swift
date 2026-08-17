@@ -91,8 +91,7 @@ public extension MenuBarController {
     ///   - allAuto:       Action for "Tất cả Auto" (revert all fans).
     ///   - presetQuiet:   Action for "Quiet (min) tất cả".
     ///   - presetMax:     Action for "Max tất cả".
-    ///   - toggleShow:    Action for Show-X checkable items; sender.tag = 0:temp 1:cpu 2:ram.
-    ///   - setThreshold:  Action for threshold items; sender.tag = the °C value (90/95/100).
+    ///   - openSettings:  Action for "Settings…" — opens the Settings window.
     ///   - showProcesses: Action for opening the running-process inspector.
     ///   - quit:          Action for "Quit KuroTools".
     func populate(menu: NSMenu,
@@ -104,8 +103,7 @@ public extension MenuBarController {
                   allAuto: Selector,
                   presetQuiet: Selector,
                   presetMax: Selector,
-                  toggleShow: Selector,
-                  setThreshold: Selector,
+                  openSettings: Selector,
                   showProcesses: Selector,
                   quit: Selector) {
 
@@ -196,42 +194,13 @@ public extension MenuBarController {
 
         menu.addItem(.separator())
 
-        // ── 7. Settings submenu ───────────────────────────────────────────────
-        let settingsParent = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
-        let settingsMenu   = NSMenu(title: "Settings")
-
-        // Show-X checkable items (tag = 0…3)
-        // Toggle which metric rows appear in this dropdown (fan rows are controls — always shown).
-        let showRows: [(String, Bool, Int)] = [
-            ("Show Temp", settings.showTemp, 0),
-            ("Show CPU",  settings.showCPU,  1),
-            ("Show RAM",  settings.showRAM,  2),
-        ]
-        for (title, isOn, tag) in showRows {
-            let item = NSMenuItem(title: title, action: toggleShow, keyEquivalent: "")
-            item.state  = isOn ? .on : .off
-            item.tag    = tag
-            item.target = target
-            settingsMenu.addItem(item)
-        }
-
-        settingsMenu.addItem(.separator())
-
-        // Alert-threshold items — tag = °C value; active one has .on state
-        let thresholdHeader = NSMenuItem(title: "Alert Threshold", action: nil, keyEquivalent: "")
-        thresholdHeader.isEnabled = false
-        settingsMenu.addItem(thresholdHeader)
-
-        for degrees in [90, 95, 100] {
-            let item = NSMenuItem(title: "\(degrees)°C", action: setThreshold, keyEquivalent: "")
-            item.tag    = degrees
-            item.state  = (Int(settings.thresholdC) == degrees) ? .on : .off
-            item.target = target
-            settingsMenu.addItem(item)
-        }
-
-        settingsParent.submenu = settingsMenu
-        menu.addItem(settingsParent)
+        // ── 7. Settings ───────────────────────────────────────────────────────
+        // Toggle hiển thị và ngưỡng quá nhiệt đã chuyển vào cửa sổ Settings;
+        // fan control ở lại menu vì đó là thao tác hằng ngày, không phải
+        // preference.
+        let settingsItem = NSMenuItem(title: "Settings…", action: openSettings, keyEquivalent: ",")
+        settingsItem.target = target
+        menu.addItem(settingsItem)
 
         // ── 8. Separator ──────────────────────────────────────────────────────
         menu.addItem(.separator())

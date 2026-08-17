@@ -37,6 +37,10 @@ public final class VitalsController: NSObject, NSMenuDelegate {
     /// AppDelegate của KuroTools chứ không phải controller này.
     public var extraItems: [NSMenuItem] = []
 
+    /// `AppDelegate` gán closure này — Vitals không được biết module Settings
+    /// tồn tại (phụ thuộc phải một chiều).
+    public var onOpenSettings: (() -> Void)?
+
     /// Bản sao preference đang có hiệu lực. Đọc được từ ngoài để Settings
     /// dựng form từ trạng thái THẬT, không phải từ `UserDefaults` đọc lại.
     public var currentSettings: Settings { settings }
@@ -166,8 +170,7 @@ public final class VitalsController: NSObject, NSMenuDelegate {
             allAuto: #selector(allAutoAction),
             presetQuiet: #selector(presetQuiet),
             presetMax: #selector(presetMax),
-            toggleShow: #selector(toggleShow(_:)),
-            setThreshold: #selector(setThreshold(_:)),
+            openSettings: #selector(openSettings),
             showProcesses: #selector(showProcesses),
             quit: #selector(quitApp))
 
@@ -258,22 +261,7 @@ public final class VitalsController: NSObject, NSMenuDelegate {
         if refreshChanged { startNormalTimer() }
     }
 
-    @objc private func toggleShow(_ sender: NSMenuItem) {
-        var next = settings
-        switch sender.tag {
-        case 0: next.showTemp.toggle()
-        case 1: next.showCPU.toggle()
-        case 2: next.showRAM.toggle()
-        default: break
-        }
-        apply(next)
-    }
-
-    @objc private func setThreshold(_ sender: NSMenuItem) {
-        var next = settings
-        next.thresholdC = Double(sender.tag)
-        apply(next)
-    }
+    @objc private func openSettings() { onOpenSettings?() }
 
     @objc private func showProcesses() {
         processWindowController.showAndRefresh()

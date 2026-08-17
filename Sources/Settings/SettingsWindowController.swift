@@ -56,8 +56,12 @@ public final class SettingsWindowController {
     private static var shared: SettingsWindowController?
 
     private let window: NSWindow
+    /// Model mà `window`'s content view đang bọc — đặt lúc dựng cửa sổ, không
+    /// đổi sau đó (`NSHostingView` không refit sang model khác).
+    private let model: SettingsModel
 
     private init(model: SettingsModel) {
+        self.model = model
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 480),
             styleMask: [.titled, .closable],
@@ -75,6 +79,15 @@ public final class SettingsWindowController {
 
     public static func show(model: SettingsModel) {
         let controller = shared ?? SettingsWindowController(model: model)
+        // `window`'s content view is bound to whichever model built it — a
+        // caller passing a SECOND, different instance here would refresh a
+        // model nobody sees while the window keeps showing the first one's
+        // state. The app is expected to keep exactly one `SettingsModel` for
+        // its whole lifetime (AppDelegate builds it once); this precondition
+        // catches a future caller that breaks that assumption instead of
+        // silently showing stale data.
+        precondition(controller.model === model,
+            "SettingsWindowController.show(model:) called with a different SettingsModel instance than the one the shared window was built with.")
         shared = controller
         // MỖI lần mở, không chỉ lần đầu: giữa hai lần mở, người dùng có thể đã
         // tắt login item trong System Settings, duyệt nó, đổi cặp ngôn ngữ từ

@@ -1,4 +1,5 @@
 import AppKit
+import Settings
 import Translate
 import Vitals
 
@@ -7,6 +8,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let vitals = VitalsController()
     private let translate = TranslateController()
     private let menu = NSMenu()
+    /// Dựng SAU `translate.start(dbPath:)` — `SettingsModel` cần `dbPath`
+    /// thật, không phải chỗ nó SẼ nằm. IUO vì mọi lối dùng khác đều chạy sau
+    /// `applicationDidFinishLaunching`, giống `reader` trong `VitalsController`.
+    private var settingsModel: SettingsModel!
 
     func applicationDidFinishLaunching(_ note: Notification) {
         // `vitals.start()` gọi `NSApp.terminate(nil)` khi không mở được SMC —
@@ -21,8 +26,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lookupItem.target = self
         vitals.extraItems = [lookupItem]
 
-        translate.start(dbPath: DatabaseLocation.resolve(
-            appSupport: DatabaseMigration.defaultAppSupport()))
+        let dbPath = DatabaseLocation.resolve(appSupport: DatabaseMigration.defaultAppSupport())
+        translate.start(dbPath: dbPath)
+
+        settingsModel = SettingsModel(
+            translate: translate,
+            vitals: vitals,
+            backend: translate.backend,
+            loginItem: SMAppServiceLoginItem(),
+            dbPath: dbPath)
+
+        // Vitals không được biết module Settings tồn tại (phụ thuộc phải một
+        // chiều) — AppDelegate là nơi duy nhất import cả hai nên chỗ nối phải
+        // nằm ở đây.
+        vitals.onOpenSettings = { [weak self] in
+            guard let self else { return }
+            SettingsWindowController.show(model: self.settingsModel)
+        }
     }
 
     // Không trong brief gốc: giữ hành vi cũ của AppDelegate KuroVitals — revert

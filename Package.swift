@@ -31,7 +31,7 @@ let package = Package(
             ]
         ),
         .target(name: "Settings", dependencies: ["Translate", "Vitals"], path: "Sources/Settings"),
-        .executableTarget(name: "KuroTools", dependencies: ["Vitals", "Translate"], path: "Sources/KuroTools"),
+        .executableTarget(name: "KuroTools", dependencies: ["Vitals", "Translate", "Settings"], path: "Sources/KuroTools"),
         // Chỉ test dùng — không product nào phụ thuộc, nên nó không bao giờ đi
         // vào KuroTools.app.
         .target(name: "TestSupport", path: "Tests/TestSupport"),
