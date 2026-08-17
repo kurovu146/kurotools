@@ -91,7 +91,7 @@ public extension MenuBarController {
     ///   - allAuto:       Action for "Tất cả Auto" (revert all fans).
     ///   - presetQuiet:   Action for "Quiet (min) tất cả".
     ///   - presetMax:     Action for "Max tất cả".
-    ///   - toggleShow:    Action for Show-X checkable items; sender.tag = 0:temp 1:cpu 2:ram 3:fan.
+    ///   - toggleShow:    Action for Show-X checkable items; sender.tag = 0:temp 1:cpu 2:ram.
     ///   - setThreshold:  Action for threshold items; sender.tag = the °C value (90/95/100).
     ///   - showProcesses: Action for opening the running-process inspector.
     ///   - quit:          Action for "Quit KuroTools".

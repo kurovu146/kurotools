@@ -264,7 +264,6 @@ public final class VitalsController: NSObject, NSMenuDelegate {
         case 0: next.showTemp.toggle()
         case 1: next.showCPU.toggle()
         case 2: next.showRAM.toggle()
-        case 3: next.showFan.toggle()
         default: break
         }
         apply(next)
