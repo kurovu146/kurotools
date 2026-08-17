@@ -56,9 +56,11 @@ public final class SettingsWindowController {
     private static var shared: SettingsWindowController?
 
     private let window: NSWindow
-    /// Model mà `window`'s content view đang bọc — đặt lúc dựng cửa sổ, không
-    /// đổi sau đó (`NSHostingView` không refit sang model khác).
-    private let model: SettingsModel
+    /// Model mà `window`'s content view đang bọc. Về nguyên tắc CỐ ĐỊNH suốt
+    /// vòng đời app — `AppDelegate` chỉ dựng một `SettingsModel` duy nhất và
+    /// luôn truyền đúng tham chiếu đó vào `show(model:)`. `var`, không phải
+    /// `let`: `adopt(_:)` bên dưới là lối thoát khi bất biến đó lỡ bị phá.
+    private var model: SettingsModel
 
     private init(model: SettingsModel) {
         self.model = model
@@ -79,16 +81,27 @@ public final class SettingsWindowController {
 
     public static func show(model: SettingsModel) {
         let controller = shared ?? SettingsWindowController(model: model)
-        // `window`'s content view is bound to whichever model built it — a
-        // caller passing a SECOND, different instance here would refresh a
-        // model nobody sees while the window keeps showing the first one's
-        // state. The app is expected to keep exactly one `SettingsModel` for
-        // its whole lifetime (AppDelegate builds it once); this precondition
-        // catches a future caller that breaks that assumption instead of
-        // silently showing stale data.
-        precondition(controller.model === model,
-            "SettingsWindowController.show(model:) called with a different SettingsModel instance than the one the shared window was built with.")
         shared = controller
+        if controller.model !== model {
+            // Bất biến "AppDelegate chỉ dựng MỘT SettingsModel suốt vòng đời
+            // app" đã bị phá bởi một call site mới nào đó. KHÔNG được
+            // `precondition`/trap ở đây: process này gộp cả fan control lẫn
+            // Settings, và một trap KHÔNG chạy `applicationWillTerminate` —
+            // nơi fan được trả về auto. Fan sẽ kẹt nguyên RPM ép cuối cùng,
+            // hậu quả nặng hơn hẳn bug Settings mà trap này định bắt.
+            // `assertionFailure` bắt lỗi này ngay ở build debug (trap, dev
+            // thấy liền) mà KHÔNG trap ở build release (`-O`, đúng bản
+            // `swift build -c release` dùng để đóng gói) — người dùng cuối
+            // không bao giờ dính một crash vì lỗi lập trình ở tầng Settings.
+            // Release: "adopt" — dựng lại content view theo model MỚI và cập
+            // nhật `model`, thay vì lặng lẽ tiếp tục hiện dữ liệu của model
+            // CŨ mà lúc này không còn ai giữ tham chiếu tới (refresh nó cũng
+            // vô nghĩa — không ai nhìn thấy kết quả).
+            assertionFailure(
+                "SettingsWindowController.show(model:) got a different SettingsModel instance than the one the shared window was built with — adopting it.")
+            NSLog("KuroTools: SettingsWindowController.show(model:) got a second SettingsModel instance; adopting it.")
+            controller.adopt(model)
+        }
         // MỖI lần mở, không chỉ lần đầu: giữa hai lần mở, người dùng có thể đã
         // tắt login item trong System Settings, duyệt nó, đổi cặp ngôn ngữ từ
         // popup tra từ, hoặc một app khác đã giành mất phím tắt. `.onAppear`
@@ -99,5 +112,13 @@ public final class SettingsWindowController {
         // và không nhận được bàn phím.
         NSApp.activate(ignoringOtherApps: true)
         controller.window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Thay hẳn model cửa sổ đang bọc — chỉ gọi khi bất biến "một model suốt
+    /// vòng đời" đã bị phá (xem `show(model:)`). `NSHostingView` không tự
+    /// refit sang model khác, nên phải dựng lại `contentView`.
+    private func adopt(_ newModel: SettingsModel) {
+        model = newModel
+        window.contentView = NSHostingView(rootView: SettingsRootView(model: newModel))
     }
 }
