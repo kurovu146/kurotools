@@ -11,9 +11,18 @@ public enum DatabaseMigration {
     /// (kiểm lỗi, không nuốt); hai file này là companion, best-effort.
     public static let companionSuffixes = ["-wal", "-shm"]
 
+    /// Chỗ db nằm khi KHÔNG có override nào trong `UserDefaults` — thuần
+    /// đường dẫn, không tạo thư mục, không migrate. Settings cần đúng giá trị
+    /// này để biết `DataReset.perform(.everything, …)` sẽ mở lại store ở đâu;
+    /// tự ghép lại chuỗi đường dẫn ở đó là dựng một nguồn sự thật thứ hai có
+    /// thể trôi khỏi bản gốc.
+    public static func defaultDatabasePath(appSupport: URL) -> URL {
+        appSupport.appendingPathComponent(currentBundleID).appendingPathComponent(databaseName)
+    }
+
     public static func resolveDatabase(appSupport: URL, fileManager: FileManager = .default) -> URL {
         let newDir = appSupport.appendingPathComponent(currentBundleID)
-        let newDB = newDir.appendingPathComponent(databaseName)
+        let newDB = defaultDatabasePath(appSupport: appSupport)
         try? fileManager.createDirectory(at: newDir, withIntermediateDirectories: true)
 
         // Đã có db thì không bao giờ đụng vào — migration chạy đúng một lần, và

@@ -8,7 +8,14 @@ import SwiftUI
 /// vì ở đây không có tách process backend/frontend để chia theo hai file.
 @MainActor
 public final class TranslateController {
-    private let backend: TranslateBackend
+    /// Backend dùng chung của app (`KTranslateBridge.shared`). Chỉ đọc từ
+    /// ngoài, và lộ ra vì Settings cần ĐÚNG instance này: dựng một
+    /// `KTranslateBridge()` thứ hai ở đó vẫn nói chuyện với cùng `STORE`
+    /// toàn cục phía Rust nhưng qua một serial queue KHÁC, làm mất chính thứ
+    /// tự mà Task 10 dựng lên (`closeStore`/`clearHistory` phải xếp sau một
+    /// `lookup` đang chạy dở, nếu không `record_lookup` chèn lại đúng dòng
+    /// người dùng vừa yêu cầu xoá).
+    public let backend: TranslateBackend
     private let model: AppModel
     private var panel: PopupPanel?
     private var hotkey: HotkeyMonitor?
