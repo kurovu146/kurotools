@@ -31,6 +31,17 @@ pub(crate) fn init(path: &Path) -> bool {
     }
 }
 
+/// Đóng store đang mở. Trả `true` cả khi chưa có store nào — Swift gọi hàm
+/// này trên đường dọn dẹp, và "không có gì để đóng" không phải lỗi.
+///
+/// Đây là lý do `STORE` là `Mutex<Option<Store>>` chứ không phải
+/// `OnceLock`: đổi chỗ db cần đóng rồi mở lại một đường dẫn KHÁC.
+pub(crate) fn close() -> bool {
+    let mut guard = STORE.lock().unwrap_or_else(|p| p.into_inner());
+    *guard = None;
+    true
+}
+
 /// `None` khi `kt_init` chưa gọi hoặc đã thất bại. Mọi hàm lưu trữ phải xử lý
 /// được — app vẫn phải tra cứu được khi db hỏng.
 pub(crate) fn with_store<T>(f: impl FnOnce(&Store) -> T) -> Option<T> {

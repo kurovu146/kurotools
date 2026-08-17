@@ -45,6 +45,11 @@ pub extern "C" fn kt_init(db_path: *const c_char) -> bool {
     .unwrap_or(false)
 }
 
+#[no_mangle]
+pub extern "C" fn kt_close() -> bool {
+    catch_unwind(AssertUnwindSafe(state::close)).unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,5 +88,34 @@ mod tests {
         assert!(kt_init(c.as_ptr()));
         assert!(kt_init(c.as_ptr()), "second init must not fail");
         assert!(state::with_store(|s| s.recent(1).is_ok()).unwrap_or(false));
+    }
+
+    #[test]
+    fn close_then_init_opens_the_new_path() {
+        let _guard = state::TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        state::reset_for_test();
+        let dir = tempfile::tempdir().unwrap();
+
+        let first = CString::new(dir.path().join("first.db").to_str().unwrap()).unwrap();
+        assert!(kt_init(first.as_ptr()));
+        assert!(state::with_store(|s| s.save_word("in-first").is_ok()).unwrap_or(false));
+
+        assert!(kt_close());
+
+        let second = CString::new(dir.path().join("second.db").to_str().unwrap()).unwrap();
+        assert!(kt_init(second.as_ptr()));
+        // Db mới phải RỖNG: nếu `init` vẫn giữ store cũ thì từ này còn ở đó và
+        // toàn bộ tính năng đổi chỗ db sẽ ghi vào file cũ trong im lặng.
+        assert_eq!(
+            state::with_store(|s| s.is_saved("in-first").unwrap_or(true)),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn close_without_a_store_is_a_successful_no_op() {
+        let _guard = state::TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        state::reset_for_test();
+        assert!(kt_close());
     }
 }
