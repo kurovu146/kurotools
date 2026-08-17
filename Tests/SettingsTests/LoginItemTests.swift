@@ -31,7 +31,22 @@ final class LoginItemTests: XCTestCase {
     }
 
     func testThePlistNameMatchesTheLabelInsideTheBundledPlist() throws {
-        // Sai tên file = SMAppService im lặng không tìm thấy agent.
-        XCTAssertEqual(SMAppServiceLoginItem.plistName, "com.kuro.kurotools.app.plist")
+        // Sai tên file = SMAppService im lặng không tìm thấy agent — nên test này phải đọc
+        // THẬT file plist sẽ được bundle, không so hai literal trong code Swift với nhau.
+        let plistURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // LoginItemTests.swift -> SettingsTests/
+            .deletingLastPathComponent() // SettingsTests/ -> Tests/
+            .deletingLastPathComponent() // Tests/ -> repo root
+            .appendingPathComponent("Sources/KuroTools/LaunchAgent.plist")
+        let data = try Data(contentsOf: plistURL)
+        let plist = try XCTUnwrap(
+            try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+
+        let label = try XCTUnwrap(plist["Label"] as? String)
+        XCTAssertEqual(label, "com.kuro.kurotools.app")
+        XCTAssertEqual(SMAppServiceLoginItem.plistName, "\(label).plist")
+
+        let programArguments = try XCTUnwrap(plist["ProgramArguments"] as? [String])
+        XCTAssertEqual(programArguments.first, "/Applications/KuroTools.app/Contents/MacOS/KuroTools")
     }
 }
