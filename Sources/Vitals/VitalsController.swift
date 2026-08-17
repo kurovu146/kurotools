@@ -10,9 +10,21 @@ public final class VitalsController: NSObject, NSMenuDelegate {
     private var reader: SensorReader!
     private let menuBar = MenuBarController()
     private lazy var processWindowController = ProcessWindowController()
-    private var fan: FanController!
-    private var timer: Timer?
-    private var settings = Settings.load()
+    /// Not `private` — `@testable` tests drive it directly (`setTarget` +
+    /// `tick`) to observe what `apply(_:)` actually pushed into it, instead
+    /// of reading back a value nobody but the test would otherwise care
+    /// about. Built eagerly in `init`, not in `start()`: constructing a
+    /// `FanController` only needs a `FanCommanding`, never SMC, so `apply`
+    /// has a real fan to push into even when `start()` (which DOES need
+    /// live SMC access and fails outside the real app) was never called.
+    var fan: FanController
+    /// Not `private` — tests read `.timeInterval` off the real `Timer` after
+    /// `apply(_:)` to prove the refresh cadence actually changed, rather
+    /// than trusting a hand-maintained mirror variable that could drift
+    /// from what is really scheduled.
+    var timer: Timer?
+    private let defaults: UserDefaults
+    private var settings: Settings
     private var lastSnapshot: Snapshot?
     private var menuOpen = false
     private var warnUntil: Date?
@@ -24,6 +36,23 @@ public final class VitalsController: NSObject, NSMenuDelegate {
     /// Menu giờ dùng chung với module Translate, nên chủ sở hữu menu là
     /// AppDelegate của KuroTools chứ không phải controller này.
     public var extraItems: [NSMenuItem] = []
+
+    /// Bản sao preference đang có hiệu lực. Đọc được từ ngoài để Settings
+    /// dựng form từ trạng thái THẬT, không phải từ `UserDefaults` đọc lại.
+    public var currentSettings: Settings { settings }
+
+    /// `defaults`/`fanCommanding` are test seams — production call sites
+    /// never pass them and get `.standard`/`HelperClient()`. Tests inject a
+    /// `UserDefaults(suiteName:)` sandbox and a spying `FanCommanding` so
+    /// `apply(_:)` can be exercised without touching real preferences or
+    /// the privileged helper socket.
+    public init(defaults: UserDefaults = .standard, fanCommanding: FanCommanding = HelperClient()) {
+        self.defaults = defaults
+        let loaded = Settings.load(defaults: defaults)
+        settings = loaded
+        fan = FanController(commander: fanCommanding, threshold: loaded.thresholdC, ttlSeconds: 6)
+        super.init()
+    }
 
     /// Returns whether startup actually succeeded. `NSApp.terminate(nil)` on
     /// the failure path is ASYNCHRONOUS — it only schedules the quit, it does
@@ -42,7 +71,6 @@ public final class VitalsController: NSObject, NSMenuDelegate {
             return false
         }
         reader = SensorReader(smc: smc, cpu: CPULoadSampler(), mem: MemorySampler())
-        fan = FanController(commander: HelperClient(), threshold: settings.thresholdC, ttlSeconds: 6)
 
         startNormalTimer()
 
@@ -62,7 +90,7 @@ public final class VitalsController: NSObject, NSMenuDelegate {
     /// menu item — e.g. system shutdown/logout also sends this to accessory
     /// apps. Forwarded from KuroTools' AppDelegate.applicationWillTerminate.
     public func stop() {
-        _ = fan?.setAllAuto()
+        _ = fan.setAllAuto()
     }
 
     /// (Re)schedules the tick in RunLoop mode .common — unlike scheduledTimer's
@@ -213,21 +241,39 @@ public final class VitalsController: NSObject, NSMenuDelegate {
         refreshSoon()
     }
 
+    /// ĐƯỜNG DUY NHẤT để đổi preference của Vitals.
+    ///
+    /// Ghi `UserDefaults` không đủ: `settings` là bản sao trong bộ nhớ, và
+    /// `FanController` giữ ngưỡng RIÊNG của nó (nhận lúc khởi tạo). Bỏ sót
+    /// một trong ba bước dưới đây sinh ra đúng loại bug tệ nhất — UI báo đã
+    /// đổi trong khi hệ thống chạy theo giá trị cũ.
+    public func apply(_ new: Settings) {
+        let thresholdChanged = new.thresholdC != settings.thresholdC
+        let refreshChanged = new.refreshSeconds != settings.refreshSeconds
+
+        settings = new
+        settings.save(defaults: defaults)
+
+        if thresholdChanged { fan.setThreshold(new.thresholdC) }
+        if refreshChanged { startNormalTimer() }
+    }
+
     @objc private func toggleShow(_ sender: NSMenuItem) {
+        var next = settings
         switch sender.tag {
-        case 0: settings.showTemp.toggle()
-        case 1: settings.showCPU.toggle()
-        case 2: settings.showRAM.toggle()
-        case 3: settings.showFan.toggle()
+        case 0: next.showTemp.toggle()
+        case 1: next.showCPU.toggle()
+        case 2: next.showRAM.toggle()
+        case 3: next.showFan.toggle()
         default: break
         }
-        settings.save()
+        apply(next)
     }
 
     @objc private func setThreshold(_ sender: NSMenuItem) {
-        settings.thresholdC = Double(sender.tag)
-        settings.save()
-        fan.setThreshold(settings.thresholdC)
+        var next = settings
+        next.thresholdC = Double(sender.tag)
+        apply(next)
     }
 
     @objc private func showProcesses() {
