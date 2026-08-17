@@ -18,11 +18,24 @@ echo "⚠ Tắt 'Chạy khi đăng nhập' trong Settings ▸ Chung TRƯỚC khi
 if pgrep -f "$DEST/Contents/MacOS/KuroTools" >/dev/null 2>&1; then
   # Thoát bằng AppleEvent, không phải SIGTERM: `applicationWillTerminate` là
   # nơi quạt được trả về Auto, và `pkill` bỏ qua đúng bước đó.
+  echo "Đang thoát bản KuroTools đang chạy…"
   osascript -e 'quit app "KuroTools"' >/dev/null 2>&1 || true
   for _ in $(seq 1 20); do
     pgrep -f "$DEST/Contents/MacOS/KuroTools" >/dev/null 2>&1 || break
     sleep 0.5
   done
+  # 🔑 CÙNG cổng từ chối như `install-app.sh`, và nó phải đứng trước CẢ HAI
+  # thao tác phá huỷ bên dưới. `osascript` cần quyền Automation (Apple Events)
+  # cho terminal đang gọi; bị từ chối thì `|| true` nuốt mất, và lần chạy đầu
+  # trên một terminal mới rơi đúng vào đây. Chạy tiếp nghĩa là:
+  #   1. `rm -rf` một bundle đang chạy — bản cài biến mất, không có gì thay thế;
+  #   2. `launchctl bootout` cái label đã khởi động tiến trình đó — SIGTERM,
+  #      KHÔNG chạy `applicationWillTerminate`, nên quạt kẹt nguyên RPM ép cuối
+  #      cùng cho tới khi helper hết TTL.
+  if pgrep -f "$DEST/Contents/MacOS/KuroTools" >/dev/null 2>&1; then
+    echo "⚠ KuroTools vẫn đang chạy. Thoát nó từ menu bar rồi chạy lại script này." >&2
+    exit 1
+  fi
 fi
 
 rm -rf "$DEST"
