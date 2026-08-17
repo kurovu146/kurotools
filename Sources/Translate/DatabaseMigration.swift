@@ -6,10 +6,10 @@ import Foundation
 public enum DatabaseMigration {
     static let currentBundleID = "com.kurovu.kurotools"
     static let legacyBundleIDs = ["com.kurovu.ktranslate", "com.kurovu.tra"]
-    static let databaseName = "ktranslate.db"
+    public static let databaseName = "ktranslate.db"
     /// SQLite giữ trạng thái ở ba file — `.db` chính được copy riêng ở dưới
     /// (kiểm lỗi, không nuốt); hai file này là companion, best-effort.
-    static let companionSuffixes = ["-wal", "-shm"]
+    public static let companionSuffixes = ["-wal", "-shm"]
 
     public static func resolveDatabase(appSupport: URL, fileManager: FileManager = .default) -> URL {
         let newDir = appSupport.appendingPathComponent(currentBundleID)

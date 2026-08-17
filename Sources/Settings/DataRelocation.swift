@@ -1,4 +1,5 @@
 import Foundation
+import Translate
 
 /// Những thao tác vòng đời store mà việc đổi chỗ db cần. Tách riêng khỏi
 /// `TranslateBackend` để chỗ này không phải biết gì về tra cứu, và để test
@@ -14,7 +15,11 @@ public protocol StoreMaintaining: AnyObject {
 public enum RelocationOutcome: Equatable {
     case moved(to: URL, oldRenamedTo: URL)
     case rejected(LocationVerdict)
+    /// Rollback thành công — store lại đang mở ở đường dẫn cũ, người dùng an toàn.
     case failed(String)
+    /// Rollback KHÔNG mở lại được store cũ — không còn store nào đang mở ở
+    /// đâu cả. Nghiêm trọng hơn `.failed`, phải được hiển thị khác đi.
+    case failedAndStoreClosed(String)
 }
 
 /// Đổi chỗ db theo lối copy-verify-swap. Không bao giờ `move`.
@@ -22,8 +27,11 @@ public enum RelocationOutcome: Equatable {
 /// Bất biến: khi hàm này trả về — dù nhánh nào — luôn có một store mở được
 /// tại đường dẫn đang có hiệu lực.
 public enum DataRelocation {
-    static let databaseName = "ktranslate.db"
-    static let companionSuffixes = ["-wal", "-shm"]
+    // Tên file trùng với `DatabaseMigration` không phải trùng hợp — cùng một
+    // db. Tham chiếu thẳng, đừng khai báo lại một hằng số thứ hai có thể trôi
+    // khỏi bản gốc.
+    private static var databaseName: String { DatabaseMigration.databaseName }
+    private static var companionSuffixes: [String] { DatabaseMigration.companionSuffixes }
 
     public static func relocate(
         currentDB: URL,
@@ -37,8 +45,15 @@ public enum DataRelocation {
 
         // ── Kiểm tra trước, TRƯỚC khi đóng store ────────────────────────────
         // Mọi lý do từ chối phải được biết khi app vẫn đang chạy bình thường.
-        let currentDir = currentDB.deletingLastPathComponent().resolvingSymlinksInPath()
-        guard currentDir != toDirectory.resolvingSymlinksInPath() else {
+        //
+        // So bằng CHUỖI đường dẫn đã standardize, không bằng `URL ==`: `URL ==`
+        // nhạy với dấu `/` cuối, và `resolvingSymlinksInPath()` không tự
+        // chuẩn hoá nó — `deletingLastPathComponent()` (có `/`) không bao giờ
+        // bằng `appendingPathComponent()` (không `/`) dù cùng trỏ một thư mục.
+        let currentDirPath = currentDB.deletingLastPathComponent()
+            .resolvingSymlinksInPath().standardizedFileURL.path
+        let targetDirPath = toDirectory.resolvingSymlinksInPath().standardizedFileURL.path
+        guard currentDirPath != targetDirPath else {
             return .failed("Thư mục đích trùng chỗ hiện tại.")
         }
         let check = verdict(toDirectory)
@@ -49,9 +64,20 @@ public enum DataRelocation {
         guard fileManager.isWritableFile(atPath: toDirectory.path) else {
             return .failed("Không ghi được vào thư mục đích.")
         }
+        guard fileManager.fileExists(atPath: currentDB.path) else {
+            return .failed("Không tìm thấy db ở chỗ hiện tại.")
+        }
 
         // ── Đóng, copy, mở lại, đọc thử ─────────────────────────────────────
-        _ = store.closeStore()
+        // `closeStore()` được kiểm: Rust `kt_init` là no-op thành công khi đã
+        // có store mở (đóng được thì `STORE` mới là `None`) — nếu đóng thất
+        // bại mà ta vẫn cứ copy, `openStore(target)` sẽ "thành công" trong khi
+        // thực ra vẫn đang ghi vào db CŨ, và `canRead()` đọc trúng chính db cũ
+        // nên cũng "qua" — `.moved` báo giả trong khi mọi write sau đó rơi vào
+        // file sắp bị đổi tên. Chưa copy gì nên không cần dọn.
+        guard store.closeStore() else {
+            return .failed("Không đóng được store hiện tại.")
+        }
 
         do {
             try fileManager.copyItem(at: currentDB, to: target)
@@ -85,6 +111,15 @@ public enum DataRelocation {
             NSLog("KuroTools: could not rename the old database: \(error)")
             return .moved(to: target, oldRenamedTo: currentDB)
         }
+        // Companion đi theo `.db` chính — để chúng lại dưới tên cũ, không
+        // stamp, thì bản backup (bản sao DUY NHẤT của trạng thái cũ) tách rời
+        // khỏi companion mà SQLite cần, và nằm đúng chỗ một db mặc định mới
+        // sẽ được tạo ra tiếp theo. Best-effort như lúc copy.
+        for suffix in companionSuffixes {
+            let from = URL(fileURLWithPath: currentDB.path + suffix)
+            guard fileManager.fileExists(atPath: from.path) else { continue }
+            try? fileManager.moveItem(at: from, to: URL(fileURLWithPath: renamed.path + suffix))
+        }
         return .moved(to: target, oldRenamedTo: renamed)
     }
 
@@ -99,7 +134,10 @@ public enum DataRelocation {
         to currentDB: URL, store: StoreMaintaining, reason: String
     ) -> RelocationOutcome {
         _ = store.closeStore()
-        _ = store.openStore(at: currentDB)
+        guard store.openStore(at: currentDB) else {
+            return .failedAndStoreClosed(
+                "\(reason) Mở lại db cũ cũng thất bại — hiện không có store nào đang mở.")
+        }
         return .failed(reason)
     }
 }
