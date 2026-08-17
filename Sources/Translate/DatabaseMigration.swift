@@ -61,3 +61,34 @@ public enum DatabaseMigration {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     }
 }
+
+/// Vị trí db: mặc định trong `Application Support` của bundle hiện tại, hoặc
+/// một thư mục người dùng chọn trong Settings.
+public enum DatabaseLocation {
+    public static let overrideKey = "databaseDirectory"
+
+    /// Đường dẫn file db sẽ dùng cho lần khởi động này.
+    ///
+    /// Override trỏ vào chỗ không còn tồn tại → quay về mặc định và ghi log.
+    /// Ổ ngoài rút ra là chuyện bình thường; một preference cũ không được
+    /// phép làm app không khởi động được.
+    public static func resolve(
+        appSupport: URL, defaults: UserDefaults = .standard, fileManager: FileManager = .default
+    ) -> URL {
+        if let path = defaults.string(forKey: overrideKey) {
+            let db = URL(fileURLWithPath: path)
+                .appendingPathComponent(DatabaseMigration.databaseName)
+            if fileManager.fileExists(atPath: db.path) { return db }
+            NSLog("KuroTools: database override \(path) is gone; falling back to the default")
+        }
+        return DatabaseMigration.resolveDatabase(appSupport: appSupport, fileManager: fileManager)
+    }
+
+    public static func setOverride(_ directory: URL?, defaults: UserDefaults = .standard) {
+        guard let directory else {
+            defaults.removeObject(forKey: overrideKey)
+            return
+        }
+        defaults.set(directory.path, forKey: overrideKey)
+    }
+}

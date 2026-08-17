@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lookupItem.target = self
         vitals.extraItems = [lookupItem]
 
-        translate.start(dbPath: DatabaseMigration.resolveDatabase(
+        translate.start(dbPath: DatabaseLocation.resolve(
             appSupport: DatabaseMigration.defaultAppSupport()))
     }
 
