@@ -13,6 +13,13 @@ public final class TranslateController {
     private var panel: PopupPanel?
     private var hotkey: HotkeyMonitor?
     public private(set) var currentHotkey: HotkeyCombo = .default
+    /// TRUE khi `currentHotkey` thực sự đang sống với hệ thống
+    /// (`RegisterEventHotKey` đã thành công) — phân biệt "phím tắt của anh,
+    /// đang hoạt động" với "phím tắt anh chọn, nhưng app khác đang giữ nó".
+    /// Một settings UI KHÔNG được suy ra trạng thái này từ `currentHotkey`
+    /// khác nil — `currentHotkey` luôn có giá trị (kể cả lúc đăng ký thất
+    /// bại), chỉ cờ này mới nói lên hotkey có thật sự bắn được hay không.
+    public private(set) var isHotkeyRegistered = false
     /// Từ `NSEvent.addLocalMonitorForEvents` — kiểu trả về là `Any?` theo
     /// chữ ký AppKit, không phải một type cụ thể.
     private var escapeMonitor: Any?
@@ -74,13 +81,31 @@ public final class TranslateController {
 
         installEscapeMonitor()
 
-        let combo = HotkeyPreference.load()
-        currentHotkey = combo
+        registerHotkey(HotkeyPreference.load())
+    }
+
+    /// Cố đăng ký `combo` với hệ thống và ghi lại kết quả THẬT, thay vì gán
+    /// `currentHotkey` trước rồi bỏ qua kết quả `register()` — tách khỏi
+    /// phần dựng DB/panel còn lại của `start()` nên test được riêng
+    /// (`KTranslateBridge.shared` là singleton cấp process; gọi `start()`
+    /// đầy đủ trong test sẽ đụng store dùng chung của các file test khác).
+    ///
+    /// Không có tổ hợp "cũ" nào để quay về ở đây (khác `applyHotkey`, luôn
+    /// có `previous` đã từng đăng ký) — nếu `combo` bị chiếm, hotkey đơn
+    /// giản là chưa hoạt động cho tới lần `applyHotkey` kế tiếp. `currentHotkey`
+    /// vẫn được gán bằng `combo` dù đăng ký thất bại, để UI biết "đây là
+    /// tổ hợp đang được cấu hình" — `isHotkeyRegistered` mới là cờ nói lên
+    /// nó có thật sự sống hay không.
+    @discardableResult
+    func registerHotkey(_ combo: HotkeyCombo) -> Bool {
         let monitor = HotkeyMonitor(keyCode: combo.keyCode, modifiers: combo.modifiers) {
             [weak self] in self?.toggle()
         }
-        monitor.register()
+        let registered = monitor.register()
+        currentHotkey = combo
+        isHotkeyRegistered = registered
         hotkey = monitor
+        return registered
     }
 
     /// Đổi tổ hợp phím và đăng ký lại NGAY, không đợi khởi động lại app.
@@ -100,6 +125,7 @@ public final class TranslateController {
         if monitor.register() {
             hotkey = monitor
             currentHotkey = combo
+            isHotkeyRegistered = true
             HotkeyPreference.save(combo)
             return true
         }
@@ -107,9 +133,15 @@ public final class TranslateController {
         let restored = HotkeyMonitor(keyCode: previous.keyCode, modifiers: previous.modifiers) {
             [weak self] in self?.toggle()
         }
-        restored.register()
+        // Kiểm kết quả THẬT thay vì giả định luôn thành công — race hẹp
+        // (vài lệnh C đồng bộ) giữa `unregister()` ở trên và `register()` ở
+        // đây có thể để một app khác chiếm mất `previous`. Không kiểm thì
+        // `hotkey` giữ một monitor CHƯA đăng ký, và người dùng mất hotkey
+        // im lặng tới lần bấm/khởi động lại kế tiếp.
+        let restoredOK = restored.register()
         hotkey = restored
         currentHotkey = previous
+        isHotkeyRegistered = restoredOK
         return false
     }
 

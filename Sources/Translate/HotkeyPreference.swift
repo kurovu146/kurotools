@@ -14,9 +14,15 @@ public struct HotkeyCombo: Equatable {
     public static let `default` = HotkeyCombo(
         keyCode: UInt32(kVK_ANSI_D), modifiers: UInt32(cmdKey | shiftKey))
 
-    /// Hotkey toàn cục không có modifier sẽ nuốt phím đó ở MỌI app — không
-    /// phải một lựa chọn người dùng nên được phép mắc.
-    public var isValid: Bool { modifiers != 0 }
+    /// Hotkey toàn cục không có modifier Carbon nào sẽ nuốt phím đó ở MỌI
+    /// app — không phải một lựa chọn người dùng nên được phép mắc. Kiểm
+    /// THÀNH VIÊN của bốn mask Carbon, không phải `!= 0`: một bit lạ (vd
+    /// `alphaLock`, hay bit Command của Cocoa `NSEvent.ModifierFlags` — khác
+    /// hẳn mask Carbon) có thể khác 0 mà `displayString` không hiện glyph
+    /// nào cho nó, sinh ra một hotkey trông như bấm nguyên phím trần.
+    public var isValid: Bool {
+        modifiers & UInt32(cmdKey | shiftKey | optionKey | controlKey) != 0
+    }
 
     /// Thứ tự ký hiệu theo quy ước macOS: ⌃⌥⇧⌘.
     public var displayString: String {
@@ -49,11 +55,27 @@ public enum HotkeyPreference {
     static let keyCodeKey = "hotkeyKeyCode"
     static let modifiersKey = "hotkeyModifiers"
 
+    /// macOS virtual key codes hợp lệ nằm trong 0...127 (`Carbon.HIToolbox`'s
+    /// `kVK_*`). Một giá trị ngoài dải đó không ứng với phím vật lý nào —
+    /// `RegisterEventHotKey` vẫn "đăng ký thành công" nó nhưng nó không bao
+    /// giờ bắn: một hotkey chết mà UI vẫn hiển thị như đang hoạt động.
+    private static let validKeyCodeRange = 0...127
+
     public static func load(defaults: UserDefaults = .standard) -> HotkeyCombo {
         guard defaults.object(forKey: keyCodeKey) != nil else { return .default }
+        // Đọc `Int` trước, kiểm miền RỒI MỚI ép sang `UInt32` — một plist
+        // chỉnh tay hay ghi hỏng có thể chứa số âm, và `UInt32(negativeInt)`
+        // là fatal error, không phải nil. Ép kiểu trước khi kiểm miền sẽ làm
+        // sập app ngay lúc khởi động (`load()` chạy trong
+        // `TranslateController.start`), trước khi `isValid` có cơ hội chạy.
+        let storedKeyCode = defaults.integer(forKey: keyCodeKey)
+        let storedModifiers = defaults.integer(forKey: modifiersKey)
+        guard validKeyCodeRange.contains(storedKeyCode),
+            (0...Int(UInt32.max)).contains(storedModifiers)
+        else { return .default }
+
         let combo = HotkeyCombo(
-            keyCode: UInt32(defaults.integer(forKey: keyCodeKey)),
-            modifiers: UInt32(defaults.integer(forKey: modifiersKey)))
+            keyCode: UInt32(storedKeyCode), modifiers: UInt32(storedModifiers))
         // Giá trị đã lưu vẫn phải qua cùng cổng hợp lệ như giá trị vừa gõ:
         // một preference hỏng không được biến thành hotkey nuốt phím.
         return combo.isValid ? combo : .default
