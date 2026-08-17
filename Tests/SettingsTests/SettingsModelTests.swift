@@ -1,5 +1,6 @@
 import Carbon.HIToolbox
 import XCTest
+import TestSupport
 @testable import Settings
 @testable import Translate
 @testable import Vitals
@@ -32,6 +33,9 @@ private final class StubBackend: TranslateBackend {
     var openStoreSucceeds = true
     var openedPaths: [URL] = []
     var config: LangConfig?
+    /// `false` = `kt_set_lang_config` trả nil (lưu hỏng) trong khi `langConfig()`
+    /// vẫn đọc được — đúng ca mà nhánh `?? backend.langConfig()` sinh ra để lo.
+    var setLangConfigSucceeds = true
     var journal: CallJournal?
 
     func capture() -> CaptureOutcome { .empty }
@@ -39,7 +43,16 @@ private final class StubBackend: TranslateBackend {
     func languages() -> [String] { ["en", "vi"] }
     func recentLanguages() -> [String] { [] }
     func langConfig() -> LangConfig? { config }
-    func setLangConfig(source: String?, target: String, other: String) -> LangConfig? { config }
+    /// Bắt chước `LangConfig::new` phía Rust: LƯU giá trị mới (nên
+    /// `langConfig()` sau đó trả về thứ KHÁC trước) và tự sửa va chạm
+    /// đích-trùng-phụ. Một stub trả nguyên `config` cũ sẽ làm test xanh giả:
+    /// giá trị cũ trong model tình cờ trùng kỳ vọng.
+    func setLangConfig(source: String?, target: String, other: String) -> LangConfig? {
+        guard setLangConfigSucceeds else { return nil }
+        let fixedOther = other == target ? (config?.other ?? "en") : other
+        config = LangConfig(source: source, target: target, other: fixedOther)
+        return config
+    }
     func hasAccessibility() -> Bool { true }
     func requestAccessibility() -> Bool { true }
     func ttsAvailable() -> Bool { false }
@@ -105,14 +118,26 @@ private final class SpyTranslate: TranslateControlling {
     var isHotkeyRegistered = true
     var applied: [HotkeyCombo] = []
     var applyResult = true
+    /// Đăng ký lại tổ hợp CŨ có thành công không — mặc định `true`, đúng như
+    /// thực tế: `TranslateController.applyHotkey` ROLLBACK khi tổ hợp mới bị
+    /// chiếm, và lần đăng ký lại tổ hợp cũ gần như luôn được. Bản spy trước
+    /// đặt `isHotkeyRegistered = applyResult` (false) — một trạng thái sản
+    /// xuất KHÔNG BAO GIỜ tới, và chính vì thế nó che mất bug FIX A.
+    var restoreSucceeds = true
     var journal: CallJournal?
 
     func applyHotkey(_ combo: HotkeyCombo) -> Bool {
         applied.append(combo)
         journal?.entries.append("applyHotkey")
-        if applyResult { currentHotkey = combo }
-        isHotkeyRegistered = applyResult
-        return applyResult
+        guard applyResult else {
+            // Đúng đường thật: giữ nguyên `currentHotkey` cũ, và
+            // `isHotkeyRegistered` mang kết quả của lần ĐĂNG KÝ LẠI.
+            isHotkeyRegistered = restoreSucceeds
+            return false
+        }
+        currentHotkey = combo
+        isHotkeyRegistered = true
+        return true
     }
 
     func hidePopup() { journal?.entries.append("hidePopup") }
@@ -485,17 +510,55 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue(model.hotkeyIsRegistered)
     }
 
-    /// Cùng đường trên, nhánh tổ hợp mặc định đang bị app khác giữ: người dùng
-    /// phải được báo, không được để UI nói dối là phím tắt đang chạy.
-    func testAFullResetSaysSoWhenTheDefaultHotkeyIsAlreadyTaken() {
+    func testAFullResetNamesTheDefaultComboInTheMessage() {
+        let spy = SpyTranslate()
+        let model = makeModel(translate: spy)
+
+        model.reset(.everything)
+
+        XCTAssertTrue(model.status?.contains(HotkeyCombo.default.displayString) == true,
+                      "phải gọi tên đúng tổ hợp vừa khôi phục, thấy: \(model.status ?? "nil")")
+    }
+
+    /// 🔑 FIX A. `applyHotkey` ROLLBACK khi tổ hợp mới bị chiếm: nó đăng ký lại
+    /// tổ hợp CŨ và đặt `isHotkeyRegistered` theo kết quả lần đăng ký lại đó —
+    /// gần như luôn `true`. Rẽ nhánh theo cờ ấy vì vậy rơi vào nhánh THÀNH
+    /// CÔNG và khoe "phím tắt trở lại ⌃⌥L", gọi tên tổ hợp CŨ, trong khi
+    /// spec §6 mức 3 nói reset phải đưa phím tắt về ⇧⌘D.
+    func testAFullResetTellsTheTruthWhenTheDefaultComboIsTaken() {
+        let spy = SpyTranslate()
+        let taken = spy.currentHotkey
+        spy.applyResult = false        // ⇧⌘D bị app khác giữ
+        spy.restoreSucceeds = true     // đăng ký lại tổ hợp cũ thì được
+        let model = makeModel(translate: spy)
+
+        model.reset(.everything)
+
+        XCTAssertEqual(model.hotkey, taken, "controller đã rollback về tổ hợp cũ")
+        XCTAssertTrue(model.hotkeyIsRegistered, "tổ hợp cũ vẫn đang sống — đúng đường rollback")
+        let status = model.status ?? ""
+        XCTAssertFalse(status.contains("trở lại \(taken.displayString)"),
+                       "KHÔNG được khoe đã trở lại tổ hợp CŨ, thấy: \(status)")
+        XCTAssertTrue(status.contains(HotkeyCombo.default.displayString),
+                      "phải nói rõ cấu hình đã về \(HotkeyCombo.default.displayString), thấy: \(status)")
+        XCTAssertTrue(status.contains("bị app khác giữ"),
+                      "phải nói ⇧⌘D đang bị chiếm, thấy: \(status)")
+        XCTAssertTrue(status.contains(taken.displayString),
+                      "và nói rõ cái đang thật sự chạy lúc này, thấy: \(status)")
+    }
+
+    /// Nhánh hỏng kép: tổ hợp mặc định bị chiếm VÀ đăng ký lại tổ hợp cũ cũng
+    /// hỏng — lúc này không có phím tắt nào sống cả.
+    func testAFullResetSaysThereIsNoLiveHotkeyWhenEvenTheRestoreFails() {
         let spy = SpyTranslate()
         spy.applyResult = false
+        spy.restoreSucceeds = false
         let model = makeModel(translate: spy)
 
         model.reset(.everything)
 
         XCTAssertFalse(model.hotkeyIsRegistered)
-        XCTAssertTrue(model.status?.contains("đang bị app khác giữ") == true,
+        XCTAssertTrue(model.status?.contains("không có phím tắt nào") == true,
                       "thấy: \(model.status ?? "nil")")
     }
 
@@ -558,6 +621,49 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertFalse(model.needsRestart, "store đã mở lại được — đừng bắt người dùng thoát app")
     }
 
+    /// 🔑 FIX B. `.failed` được trả về từ SÁU chỗ trong `DataRelocation.relocate`,
+    /// và chỉ MỘT trong số đó (rollback) đã thật sự mở lại store; năm chỗ còn
+    /// lại là guard pre-flight, return TRƯỚC cả `closeStore()`. Người dùng gặp
+    /// lỗi nặng rồi thử lại và trỏ đúng thư mục db đang nằm → `.failed("Thư
+    /// mục đích trùng chỗ hiện tại.")` → banner đỏ biến mất trong khi app vẫn
+    /// KHÔNG có store nào mở.
+    func testAPreflightRefusalAfterAHardFailureKeepsTheRestartBanner() throws {
+        let broken = try newDir("broken")
+        let store = FakeStore()
+        store.openSucceeds = { _ in false }
+        let model = makeModel(maintenance: store)
+
+        model.relocateDatabase(to: broken)
+        XCTAssertTrue(model.needsRestart, "setup: phải rơi vào .failedAndStoreClosed")
+
+        // Thử lại, chọn đúng thư mục db đang nằm: bị từ chối ở pre-flight.
+        model.relocateDatabase(to: dbPath.deletingLastPathComponent())
+
+        XCTAssertTrue(model.status?.contains("trùng chỗ hiện tại") == true,
+                      "setup: phải là đúng guard pre-flight đó, thấy: \(model.status ?? "nil")")
+        XCTAssertTrue(model.needsRestart,
+                      "pre-flight từ chối TRƯỚC khi chạm store — không chứng minh được store nào đang mở")
+    }
+
+    /// Mặt còn lại: rollback THẬT SỰ mở lại db cũ, nên nhánh đó mới được phép
+    /// gỡ banner.
+    func testARollbackThatReopensTheOldDatabaseClearsTheRestartBanner() throws {
+        let broken = try newDir("broken")
+        let retry = try newDir("retry")
+        let store = FakeStore()
+        store.openSucceeds = { _ in false }
+        let model = makeModel(maintenance: store)
+
+        model.relocateDatabase(to: broken)
+        XCTAssertTrue(model.needsRestart, "setup")
+
+        // Lần này mở db ở chỗ MỚI hỏng nhưng mở lại chỗ cũ thì được → rollback sạch.
+        store.openSucceeds = { $0 != retry.appendingPathComponent("ktranslate.db") }
+        model.relocateDatabase(to: retry)
+
+        XCTAssertFalse(model.needsRestart, "rollback đã mở lại db cũ — store đang mở thật")
+    }
+
     /// Spec §5 bước 2: đóng popup TRƯỚC `kt_close()`. Popup đang hiện là nơi
     /// duy nhất còn có thể sinh một `lookup` mới ngay lúc store sắp đóng.
     func testTheLookupPopupIsClosedBeforeTheStoreIsClosedWhenRelocating() throws {
@@ -587,6 +693,84 @@ final class SettingsModelTests: XCTestCase {
         model.reset(.everything)
 
         XCTAssertEqual(journal.entries.first, "hidePopup", "thứ tự thật: \(journal.entries)")
+    }
+
+    /// FIX C. Dòng `langConfig = saved ?? backend.langConfig()` thay cho
+    /// `@State` + `onAppear` của tab đã bị xoá. Thiếu nó, picker bật ngược về
+    /// giá trị cũ sau MỖI lần chọn.
+    func testThePickerShowsWhatTheBackendSavedNotWhatWasPicked() {
+        let backend = StubBackend()
+        backend.config = LangConfig(source: nil, target: "vi", other: "en")
+        let model = makeModel(backend: backend)
+        model.refreshFromSystem()
+
+        // Chọn đích "fr" và phụ cũng "fr" — backend sửa va chạm, giữ phụ "en".
+        model.setLangConfig(source: nil, target: "fr", other: "fr")
+
+        XCTAssertEqual(model.langConfig?.target, "fr",
+                       "không cập nhật thì picker bật ngược về giá trị cũ sau mỗi lần chọn")
+        XCTAssertEqual(model.langConfig?.other, "en",
+                       "phải hiện thứ backend THỰC SỰ lưu (đã sửa va chạm), không phải thứ vừa chọn")
+    }
+
+    /// Nửa còn lại của cùng dòng: lưu HỎNG thì đọc lại thứ backend đang giữ,
+    /// để picker không đứng ở một giá trị chưa bao giờ được ghi.
+    func testAFailedLanguageSaveFallsBackToWhatTheBackendStillHolds() {
+        let backend = StubBackend()
+        backend.config = LangConfig(source: nil, target: "vi", other: "en")
+        let model = makeModel(backend: backend)
+        model.refreshFromSystem()
+
+        // Cặp ngôn ngữ đổi ở nơi khác (popup tra từ) rồi lần lưu này hỏng:
+        // picker phải hiện thứ backend ĐANG giữ, không phải bản cũ trong model
+        // và cũng không phải thứ vừa chọn.
+        backend.config = LangConfig(source: nil, target: "ja", other: "en")
+        backend.setLangConfigSucceeds = false
+
+        let saved = model.setLangConfig(source: nil, target: "fr", other: "de")
+
+        XCTAssertNil(saved)
+        XCTAssertEqual(model.langConfig?.target, "ja",
+                       "lưu hỏng thì picker phải quay về giá trị backend đang giữ")
+        XCTAssertTrue(model.status?.contains("Không lưu được") == true,
+                      "thấy: \(model.status ?? "nil")")
+    }
+
+    /// FIX C. `vitalsSettings = vitals.currentSettings` trong
+    /// `refreshFromSystem` — chính lớp bug của FIX 3, nằm ngay trong code của
+    /// FIX 3: người dùng đổi ngưỡng từ menu bar giữa hai lần mở cửa sổ.
+    func testReopeningTheWindowRereadsVitalsChangedFromTheMenuBar() {
+        let vitals = VitalsController(defaults: defaults)
+        let model = makeModel(vitals: vitals)
+        XCTAssertEqual(model.vitalsSettings.thresholdC, 95, "setup")
+
+        // Menu bar đổi ngưỡng sau lưng cửa sổ Settings.
+        var fromMenu = vitals.currentSettings
+        fromMenu.thresholdC = 82
+        vitals.apply(fromMenu)
+
+        model.refreshFromSystem()
+
+        XCTAssertEqual(model.vitalsSettings.thresholdC, 82,
+                       "mở lại cửa sổ mà vẫn hiện ngưỡng cũ là đúng bug FIX 3, nằm trong code FIX 3")
+        vitals.timer?.invalidate()
+    }
+
+    /// FIX E. Spec §5 đặt việc đóng popup ở bước 2, SAU các lý do từ chối của
+    /// bước 1 — một thư mục NAS bị từ chối không có lý do gì để đóng popup tra
+    /// từ mà người dùng đang mở.
+    func testARejectedDestinationLeavesTheLookupPopupAlone() throws {
+        let target = try newDir("nas")
+        let journal = CallJournal()
+        let store = FakeStore()
+        store.journal = journal
+        let spy = SpyTranslate()
+        spy.journal = journal
+        let model = makeModel(maintenance: store, translate: spy)
+
+        model.relocateDatabase(to: target, verdict: { _ in .notLocalVolume })
+
+        XCTAssertEqual(journal.entries, [], "bị từ chối ở bước 1 — không đóng popup, không chạm store")
     }
 
     /// Cửa sổ mở lần thứ hai phải đọc lại cặp ngôn ngữ: người dùng có thể vừa

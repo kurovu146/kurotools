@@ -18,23 +18,24 @@ import Foundation
 /// lớp, dùng lại mãi, thay vì một file cho mỗi test cho mỗi lần chạy.
 ///
 /// An toàn vì `swift test` chạy các lớp test tuần tự (không bật `--parallel`);
-/// hai lớp dùng hai `label` khác nhau nên không bao giờ đụng nhau.
-enum PreferencesSandbox {
+/// hai lớp dùng hai `label` khác nhau nên không bao giờ đụng nhau. Target này
+/// CHỈ được các test target dùng — không sản phẩm nào phụ thuộc vào nó.
+public enum PreferencesSandbox {
     /// Tiền tố bắt buộc — mọi thao tác xoá đều kiểm nó, để một tên truyền
     /// nhầm không bao giờ chạm tới preference thật của app
     /// (`com.kurovu.kurotools`) hay của bất kỳ app nào khác.
-    static let prefix = "kurotools.test."
+    public static let prefix = "kurotools.test."
 
     /// Dọn RỖNG trước khi trả về: phần sót của lần chạy trước (hoặc của một
     /// test trước trong cùng lớp) không được chảy sang test này.
-    static func make(_ label: String) -> (defaults: UserDefaults, suiteName: String) {
+    public static func make(_ label: String) -> (defaults: UserDefaults, suiteName: String) {
         let name = "\(prefix)\(label)"
         let defaults = UserDefaults(suiteName: name)!
         wipe(name)
         return (defaults, name)
     }
 
-    static func destroy(_ suiteName: String) {
+    public static func destroy(_ suiteName: String) {
         wipe(suiteName)
     }
 

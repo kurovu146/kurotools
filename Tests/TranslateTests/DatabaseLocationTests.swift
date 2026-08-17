@@ -1,4 +1,5 @@
 import XCTest
+import TestSupport
 @testable import Translate
 
 final class DatabaseLocationTests: XCTestCase {
@@ -7,15 +8,14 @@ final class DatabaseLocationTests: XCTestCase {
     private var tmp: URL!
 
     override func setUpWithError() throws {
-        suiteName = "kurotools.test.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        (defaults, suiteName) = PreferencesSandbox.make("dblocation")
         tmp = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        defaults.removePersistentDomain(forName: suiteName)
+        PreferencesSandbox.destroy(suiteName)
         try? FileManager.default.removeItem(at: tmp)
     }
 

@@ -1,4 +1,5 @@
 import XCTest
+import TestSupport
 import FanControl
 import HelperProtocol
 @testable import Vitals
@@ -19,12 +20,11 @@ final class VitalsSettingsApplyTests: XCTestCase {
     private var defaults: UserDefaults!
 
     override func setUp() {
-        suiteName = "kurotools.vitals.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        (defaults, suiteName) = PreferencesSandbox.make("vitals")
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
+        PreferencesSandbox.destroy(suiteName)
     }
 
     /// Chứng minh ngưỡng THẬT SỰ tới `FanController` bằng hành vi quan sát

@@ -1,4 +1,5 @@
 import XCTest
+import TestSupport
 @testable import Settings
 @testable import Translate
 

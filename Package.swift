@@ -32,12 +32,15 @@ let package = Package(
         ),
         .target(name: "Settings", dependencies: ["Translate", "Vitals"], path: "Sources/Settings"),
         .executableTarget(name: "KuroTools", dependencies: ["Vitals", "Translate"], path: "Sources/KuroTools"),
+        // Chỉ test dùng — không product nào phụ thuộc, nên nó không bao giờ đi
+        // vào KuroTools.app.
+        .target(name: "TestSupport", path: "Tests/TestSupport"),
         .testTarget(name: "SMCKitTests", dependencies: ["SMCKit"]),
         .testTarget(name: "SystemStatsTests", dependencies: ["SystemStats"]),
         .testTarget(name: "SensorReaderTests", dependencies: ["SensorReader"]),
         .testTarget(name: "FanControlTests", dependencies: ["FanControl"]),
-        .testTarget(name: "VitalsTests", dependencies: ["Vitals", "FanControl"]),
-        .testTarget(name: "TranslateTests", dependencies: ["Translate"]),
-        .testTarget(name: "SettingsTests", dependencies: ["Settings"]),
+        .testTarget(name: "VitalsTests", dependencies: ["Vitals", "FanControl", "TestSupport"]),
+        .testTarget(name: "TranslateTests", dependencies: ["Translate", "TestSupport"]),
+        .testTarget(name: "SettingsTests", dependencies: ["Settings", "TestSupport"]),
     ]
 )

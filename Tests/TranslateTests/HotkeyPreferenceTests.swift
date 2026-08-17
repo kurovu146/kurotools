@@ -1,4 +1,5 @@
 import XCTest
+import TestSupport
 import Carbon.HIToolbox
 @testable import Translate
 
@@ -7,12 +8,11 @@ final class HotkeyPreferenceTests: XCTestCase {
     private var defaults: UserDefaults!
 
     override func setUp() {
-        suiteName = "kurotools.hotkey.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        (defaults, suiteName) = PreferencesSandbox.make("hotkey")
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
+        PreferencesSandbox.destroy(suiteName)
     }
 
     func testTheDefaultIsCommandShiftD() {
