@@ -21,8 +21,16 @@ public protocol StoreMaintaining: AnyObject {
 public enum RelocationOutcome: Equatable {
     case moved(to: URL, oldRenamedTo: URL)
     case rejected(LocationVerdict)
-    /// Rollback thành công — store lại đang mở ở đường dẫn cũ, người dùng an toàn.
-    case failed(String)
+    /// Không chuyển được, và dữ liệu vẫn nguyên vẹn.
+    ///
+    /// `storeIsOpen` phân biệt hai loại thất bại mà caller KHÔNG suy ra được
+    /// từ chuỗi lý do: `true` = rollback đã mở lại được db cũ (store đang mở);
+    /// `false` = guard pre-flight từ chối TRƯỚC khi `closeStore()` được gọi,
+    /// nên lời gọi này không chứng minh gì về trạng thái store. Năm trong sáu
+    /// đường trả `.failed` là loại thứ hai — một caller coi mọi `.failed` là
+    /// "store đang mở" sẽ gỡ cảnh báo khởi động lại sau một lần thử lại bị
+    /// từ chối, trong khi app vẫn không có db nào mở.
+    case failed(String, storeIsOpen: Bool)
     /// Rollback KHÔNG mở lại được store cũ — không còn store nào đang mở ở
     /// đâu cả. Nghiêm trọng hơn `.failed`, phải được hiển thị khác đi.
     case failedAndStoreClosed(String)
@@ -49,7 +57,8 @@ public enum DataRelocation {
         store: StoreMaintaining,
         fileManager: FileManager = .default,
         verdict: (URL) -> LocationVerdict = LocalVolumeCheck.verdictOnDisk,
-        now: Date = Date()
+        now: Date = Date(),
+        willCloseStore: () -> Void = {}
     ) -> RelocationOutcome {
         let target = toDirectory.appendingPathComponent(databaseName)
 
@@ -64,18 +73,18 @@ public enum DataRelocation {
             .resolvingSymlinksInPath().standardizedFileURL.path
         let targetDirPath = toDirectory.resolvingSymlinksInPath().standardizedFileURL.path
         guard currentDirPath != targetDirPath else {
-            return .failed("Thư mục đích trùng chỗ hiện tại.")
+            return .failed("Thư mục đích trùng chỗ hiện tại.", storeIsOpen: false)
         }
         let check = verdict(toDirectory)
         guard check == .ok else { return .rejected(check) }
         guard !fileManager.fileExists(atPath: target.path) else {
-            return .failed("Đã có ktranslate.db trong thư mục đích.")
+            return .failed("Đã có ktranslate.db trong thư mục đích.", storeIsOpen: false)
         }
         guard fileManager.isWritableFile(atPath: toDirectory.path) else {
-            return .failed("Không ghi được vào thư mục đích.")
+            return .failed("Không ghi được vào thư mục đích.", storeIsOpen: false)
         }
         guard fileManager.fileExists(atPath: currentDB.path) else {
-            return .failed("Không tìm thấy db ở chỗ hiện tại.")
+            return .failed("Không tìm thấy db ở chỗ hiện tại.", storeIsOpen: false)
         }
 
         // ── Đóng, copy, mở lại, đọc thử ─────────────────────────────────────
@@ -85,8 +94,16 @@ public enum DataRelocation {
         // thực ra vẫn đang ghi vào db CŨ, và `canRead()` đọc trúng chính db cũ
         // nên cũng "qua" — `.moved` báo giả trong khi mọi write sau đó rơi vào
         // file sắp bị đổi tên. Chưa copy gì nên không cần dọn.
+        // Spec §5 bước 2: đóng popup tra từ rồi mới `kt_close()`. Móc ở ĐÂY
+        // chứ không phải ở caller vì mọi lý do từ chối (bước 1) nằm phía trên —
+        // đóng popup của người dùng cho một lần chọn thư mục bị từ chối là làm
+        // phiền không đổi lại được gì.
+        willCloseStore()
         guard store.closeStore() else {
-            return .failed("Không đóng được store hiện tại.")
+            // `closeStore()` trả `false` nghĩa là "chưa đóng được gì cả" theo giao
+            // kèo — nhưng nó không nói store CÓ đang mở hay không (nó có thể đã
+            // đóng từ một lần hỏng trước). Không chứng minh được thì báo false.
+            return .failed("Không đóng được store hiện tại.", storeIsOpen: false)
         }
 
         do {
@@ -148,7 +165,9 @@ public enum DataRelocation {
             return .failedAndStoreClosed(
                 "\(reason) Mở lại db cũ cũng thất bại — hiện không có store nào đang mở.")
         }
-        return .failed(reason)
+        // Đây là đường DUY NHẤT trả `.failed` với store chắc chắn đang mở:
+        // `openStore(currentDB)` vừa thành công ngay phía trên.
+        return .failed(reason, storeIsOpen: true)
     }
 }
 

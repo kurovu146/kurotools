@@ -253,13 +253,13 @@ public final class SettingsModel: ObservableObject {
         isRelocating = true
         defer { isRelocating = false }
 
-        // Spec §5 bước 2: đóng popup TRƯỚC khi store bị đóng. `relocate` gọi
-        // `closeStore()` ngay sau nhóm pre-flight, và popup còn hiện là nơi
-        // duy nhất có thể sinh một `lookup` mới ngay lúc đó.
-        translate.hidePopup()
-
         switch DataRelocation.relocate(
-            currentDB: dbPath, toDirectory: directory, store: maintenance, verdict: verdict
+            currentDB: dbPath, toDirectory: directory, store: maintenance, verdict: verdict,
+            // Spec §5 bước 2: đóng popup ngay TRƯỚC `kt_close()`, và chỉ khi
+            // thật sự tới bước đó — popup còn hiện là nơi duy nhất có thể sinh
+            // một `lookup` mới lúc store sắp đóng, nhưng một thư mục bị từ
+            // chối ở bước 1 thì không có lý do gì để đóng nó.
+            willCloseStore: { self.translate.hidePopup() }
         ) {
         case .moved(let to, let oldRenamedTo):
             // Ghi override CHỈ ở nhánh này: `DatabaseLocation.resolve` chỉ
@@ -278,11 +278,11 @@ public final class SettingsModel: ObservableObject {
             // KHÁC `.ok`. Liệt kê tay để không có `default:` nào nuốt mất một
             // case mới thêm về sau.
             status = nil
-        case .failed(let reason):
-            // `.failed` = rollback đã mở lại được db cũ (đúng giao kèo của
-            // `DataRelocation`), nên đây cũng là một đường kết thúc với store
-            // đang mở — kể cả khi trước đó có một lần hỏng nặng.
-            storeIsOpen()
+        case .failed(let reason, let storeStillOpen):
+            // CHỈ gỡ cảnh báo khi `DataRelocation` khẳng định store đang mở —
+            // năm trong sáu đường `.failed` là guard pre-flight, return trước
+            // cả `closeStore()`, nên chúng không chứng minh gì cả.
+            if storeStillOpen { storeIsOpen() }
             status = "Không chuyển được: \(reason) Db vẫn ở chỗ cũ."
         case .failedAndStoreClosed(let reason):
             // KHÁC HẲN `.failed`: rollback không mở lại được db cũ, hiện không
@@ -345,10 +345,39 @@ public final class SettingsModel: ObservableObject {
             // lại, không chỉ là một bản sao cũ trong bộ nhớ.
             applyVitals(Vitals.Settings())
 
-            status = hotkeyIsRegistered
-                ? "Đã xoá sạch. Db mới nằm ở \(dbDirectory.path); phím tắt trở lại \(hotkey.displayString)."
-                : "Đã xoá sạch. Db mới nằm ở \(dbDirectory.path); \(hotkey.displayString) đang bị app khác giữ nên phím tắt chưa hoạt động."
+            status = "Đã xoá sạch. Db mới nằm ở \(dbDirectory.path); \(hotkeyOutcomeAfterReset())"
         }
+    }
+
+    /// Nửa sau của dòng phản hồi sau khi xoá sạch, nói ĐÚNG chuyện gì đã xảy
+    /// ra với phím tắt.
+    ///
+    /// KHÔNG rẽ nhánh theo `hotkeyIsRegistered`: `applyHotkey` ROLLBACK khi tổ
+    /// hợp mới bị chiếm — nó đăng ký lại tổ hợp CŨ và đặt cờ theo kết quả lần
+    /// đăng ký lại đó, gần như luôn `true`. Rẽ theo cờ ấy sẽ khoe "phím tắt
+    /// trở lại ⌃⌥J", gọi tên đúng tổ hợp mà spec §6 mức 3 vừa bảo phải bỏ.
+    /// Câu hỏi đúng là "tổ hợp mặc định có thật sự thành tổ hợp hiện tại
+    /// không", tức `hotkey == .default`.
+    private func hotkeyOutcomeAfterReset() -> String {
+        let restored = HotkeyCombo.default.displayString
+        guard hotkey != .default else {
+            return "phím tắt trở lại \(restored)."
+        }
+        // Preference đã bị xoá sạch nên lần khởi động sau `HotkeyPreference.load`
+        // trả về `.default` — tức cấu hình ĐÃ về ⇧⌘D đúng như spec. Nhưng
+        // ⇧⌘D đang bị app khác giữ, nên lần khởi động đó hotkey sẽ không bắn.
+        // Phải nói cả hai nửa, và nói cả thứ đang thật sự chạy NGAY BÂY GIỜ.
+        guard hotkeyIsRegistered else {
+            return """
+            cấu hình phím tắt đã về \(restored) nhưng \(restored) đang bị app khác giữ — \
+            hiện không có phím tắt nào hoạt động, chọn tổ hợp khác trong tab Chung.
+            """
+        }
+        return """
+        cấu hình phím tắt đã về \(restored) nhưng \(restored) đang bị app khác giữ — \
+        hiện vẫn đang chạy \(hotkey.displayString), và lần khởi động sau phím tắt sẽ \
+        không hoạt động. Chọn tổ hợp khác trong tab Chung.
+        """
     }
 
     /// Đánh dấu "có một store chắc chắn đang mở". Gọi ở MỌI đường kết thúc như

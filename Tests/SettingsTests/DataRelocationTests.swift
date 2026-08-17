@@ -220,7 +220,7 @@ final class DataRelocationTests: XCTestCase {
         // báo thành công. Người dùng thấy "copy thất bại" trong khi chỗ cũ đã
         // âm thầm bị thay bằng db rỗng — và `DatabaseMigration` không bao giờ
         // migrate lại được nữa (nó chỉ chạy khi CHƯA có db ở đó).
-        XCTAssertEqual(outcome, .failed("Không tìm thấy db ở chỗ hiện tại."))
+        XCTAssertEqual(outcome, .failed("Không tìm thấy db ở chỗ hiện tại.", storeIsOpen: false))
         XCTAssertEqual(store.calls, [], "thiếu db nguồn là điều biết trước — không được đụng tới store")
     }
 
@@ -234,7 +234,7 @@ final class DataRelocationTests: XCTestCase {
         // thư-mục bị xoá, hàm vẫn trả `.failed` (nhờ guard "đã có db ở đích"
         // phía sau bắt trúng — target khi đó CHÍNH LÀ currentDB) nên
         // `case .failed = outcome` không phân biệt được hai lý do khác nhau.
-        XCTAssertEqual(outcome, .failed("Thư mục đích trùng chỗ hiện tại."))
+        XCTAssertEqual(outcome, .failed("Thư mục đích trùng chỗ hiện tại.", storeIsOpen: false))
         XCTAssertEqual(store.calls, [])
     }
 }
