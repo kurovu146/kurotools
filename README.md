@@ -49,17 +49,31 @@ K  ▾
 ## Install
 
 ```bash
-git clone https://github.com/kurovu146/kurovitals.git
-cd kurovitals
+git clone https://github.com/kurovu146/kurotools.git
+cd kurotools
 ./scripts/build-release.sh        # build
 ./scripts/install-helper.sh       # install the root fan-control daemon (asks for sudo)
 ./scripts/install-app.sh          # build + sign the bundle, install it to /Applications
 ```
 
 Then, to have it start at login, turn on **Chạy khi đăng nhập** in *Settings ▸ Chung*. That
-toggle is the *only* autostart mechanism: the app registers its own LaunchAgent through
+toggle is the supported autostart mechanism: the app registers its own LaunchAgent through
 `SMAppService`, using the plist shipped inside the bundle. `install-app.sh` never writes a
 LaunchAgent of its own — two competing ones would auto-start two copies at login.
+
+> **A hand-installed LaunchAgent shadows the toggle.** `SMAppService` only ever sees the plist
+> inside the bundle, so a file in `~/Library/LaunchAgents` carrying the *same* label
+> (`com.kuro.kurotools.app`) is invisible to it: the toggle can read **off** while launchd really
+> does start the app at login, and turning the toggle on registers a second definition of one
+> label. Check with:
+>
+> ```bash
+> ls ~/Library/LaunchAgents/com.kuro.kuro*.app.plist
+> ```
+>
+> Anything listed there is stale and should go — `install-app.sh` and `uninstall-app.sh` remove
+> both known labels (`com.kuro.kurotools.app` and the older `com.kuro.kurovitals.app`), after
+> which the toggle is the whole story.
 
 Prefer to run it in the foreground instead of installing it? Skip `install-app.sh` and run:
 
