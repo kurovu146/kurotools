@@ -219,15 +219,31 @@ public final class KTranslateBridge: TranslateBackend, @unchecked Sendable {
         }
     }
 
-    public func closeStore() -> Bool { kt_close() }
+    // Bốn hàm dưới đây tự `queue.sync` thay vì gọi FFI trực tiếp trên thread
+    // gọi vào: `lookup`/`speak`/`captureAsync` đã tuần tự hoá qua `queue` từ
+    // Task 9 để không hai lệnh FFI nào chạy chồng nhau — mutex phía Rust chỉ
+    // chặn ĐUA GHI (race), không chặn SAI THỨ TỰ. Không có `queue.sync` ở đây,
+    // một `lookup` đang treo (ghi lịch sử qua `record_lookup`) có thể trả về
+    // SAU khi Settings gọi `clearHistory`/`closeStore` xong, âm thầm chèn lại
+    // đúng dòng người dùng vừa yêu cầu xoá. Dùng `.sync` (không phải `.async`)
+    // để bốn hàm này giữ nguyên chữ ký đồng bộ hiện có — `DataReset.perform`
+    // và `StoreMaintenanceTests` đều gọi chúng đồng bộ và đọc kết quả ngay.
+    //
+    // Đã kiểm không nơi nào trong bốn hàm này (hay bất kỳ closure nào đang
+    // chạy TRÊN `queue`) gọi ngược lại một trong bốn hàm — `queue.sync` lồng
+    // trong chính `queue` đó mới là thứ treo chết; các closure hiện có của
+    // `queue` (`captureAsync`, `lookup`, `speak`) chỉ gọi `capture()`,
+    // `kt_lookup`, `kt_speak`, không đụng tới closeStore/openStore/
+    // clearHistory/clearSavedWords.
+    public func closeStore() -> Bool { queue.sync { kt_close() } }
 
     public func openStore(at dbPath: URL) -> Bool {
-        dbPath.path.withCString { kt_init($0) }
+        queue.sync { dbPath.path.withCString { kt_init($0) } }
     }
 
-    public func clearHistory() -> Bool { okFlag(from: kt_clear_history()) }
+    public func clearHistory() -> Bool { queue.sync { okFlag(from: kt_clear_history()) } }
 
-    public func clearSavedWords() -> Bool { okFlag(from: kt_clear_saved()) }
+    public func clearSavedWords() -> Bool { queue.sync { okFlag(from: kt_clear_saved()) } }
 
     /// Đọc `{"ok": bool}` rồi giải phóng con trỏ. Con trỏ PHẢI được free kể
     /// cả khi JSON hỏng.

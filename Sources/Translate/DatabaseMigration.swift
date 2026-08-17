@@ -4,7 +4,7 @@ import Foundation
 /// tên trước (`tra` → `ktranslate`) phải `sqlite3 .backup` bằng tay và bất kỳ
 /// bản cài nào khác sẽ khởi động rỗng. Lần này app tự lo.
 public enum DatabaseMigration {
-    static let currentBundleID = "com.kurovu.kurotools"
+    public static let currentBundleID = "com.kurovu.kurotools"
     static let legacyBundleIDs = ["com.kurovu.ktranslate", "com.kurovu.tra"]
     public static let databaseName = "ktranslate.db"
     /// SQLite giữ trạng thái ở ba file — `.db` chính được copy riêng ở dưới

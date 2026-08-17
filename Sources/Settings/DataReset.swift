@@ -21,8 +21,21 @@ public struct DataReset {
         self.fileManager = fileManager
     }
 
+    /// `dbPath`: db đang sống ở đâu NGAY BÂY GIỜ (có thể là chỗ người dùng đã
+    /// tự chuyển tới qua "đổi vị trí lưu trữ"). `defaultDBPath`: chỗ app sẽ
+    /// tự resolve về nếu không có override trong `UserDefaults` — chính là
+    /// `DatabaseLocation.resolve` sẽ trả về ở lần khởi động kế tiếp một khi
+    /// domain bị xoá sạch.
+    ///
+    /// Với `.history`/`.savedWords`, db không đổi chỗ nên vẫn sống ở `dbPath`
+    /// sau khi gọi xong. Với `.everything` — thành công thì db sống ở
+    /// `defaultDBPath` (đúng tham số caller truyền vào, không cần trả thêm gì
+    /// để "biết" điều này); thất bại thì không còn store nào đang mở cả.
     @discardableResult
-    public func perform(_ scope: ResetScope, dbPath: URL, bundleID: String) -> Bool {
+    public func perform(
+        _ scope: ResetScope, dbPath: URL, defaultDBPath: URL,
+        bundleID: String = DatabaseMigration.currentBundleID
+    ) -> Bool {
         switch scope {
         case .history:
             return backend.clearHistory()
@@ -35,9 +48,14 @@ public struct DataReset {
                 try? fileManager.removeItem(at: URL(fileURLWithPath: dbPath.path + suffix))
             }
             defaults.removePersistentDomain(forName: bundleID)
-            // Mở lại NGAY: `migrate()` dựng schema mới. Bỏ bước này thì app
-            // chạy tiếp mà không có db cho tới lần khởi động sau.
-            return backend.openStore(at: dbPath)
+            // Mở lại ở DEFAULT, không phải `dbPath`: xoá domain UserDefaults ở
+            // trên đã xoá luôn `DatabaseLocation.overrideKey`, nên lần khởi
+            // động SAU sẽ resolve về `defaultDBPath` bất kể `dbPath` từng là
+            // gì. Mở lại ở `dbPath` cũ (một thư mục người dùng từng chuyển db
+            // tới) sẽ để phiên này tiếp tục ghi vào đó trong khi lần khởi
+            // động kế mất dấu nó vĩnh viễn — một file "mồ côi" không ai báo
+            // cho người dùng biết (fix round 2, FIX 1).
+            return backend.openStore(at: defaultDBPath)
         }
     }
 }

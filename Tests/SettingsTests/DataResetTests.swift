@@ -9,6 +9,10 @@ private final class SpyBackend: TranslateBackend {
     var clearHistorySucceeds = true
     var clearSavedWordsSucceeds = true
     var openStoreSucceeds = true
+    /// Ghi lại đường dẫn THẬT mà `openStore` được gọi với — cần để chứng
+    /// minh `.everything` mở lại đúng `defaultDBPath`, không phải `dbPath`
+    /// cũ (fix round 2, FIX 1).
+    var openedPaths: [URL] = []
 
     func capture() -> CaptureOutcome { .empty }
     func lookup(_ text: String, completion: @escaping (Lookup) -> Void) {}
@@ -26,7 +30,11 @@ private final class SpyBackend: TranslateBackend {
     func clearHistory() -> Bool { calls.append("clearHistory"); return clearHistorySucceeds }
     func clearSavedWords() -> Bool { calls.append("clearSaved"); return clearSavedWordsSucceeds }
     func closeStore() -> Bool { calls.append("close"); return true }
-    func openStore(at dbPath: URL) -> Bool { calls.append("open"); return openStoreSucceeds }
+    func openStore(at dbPath: URL) -> Bool {
+        calls.append("open")
+        openedPaths.append(dbPath)
+        return openStoreSucceeds
+    }
 }
 
 final class DataResetTests: XCTestCase {
@@ -54,7 +62,7 @@ final class DataResetTests: XCTestCase {
         let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
         defaults.set(42, forKey: "thresholdC")
 
-        XCTAssertTrue(reset.perform(.history, dbPath: dbPath, bundleID: suiteName))
+        XCTAssertTrue(reset.perform(.history, dbPath: dbPath, defaultDBPath: dbPath, bundleID: suiteName))
 
         XCTAssertEqual(backend.calls, ["clearHistory"])
         XCTAssertTrue(FileManager.default.fileExists(atPath: dbPath.path))
@@ -64,7 +72,7 @@ final class DataResetTests: XCTestCase {
     func testClearingSavedWordsTouchesNothingElse() {
         let backend = SpyBackend()
         let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
-        XCTAssertTrue(reset.perform(.savedWords, dbPath: dbPath, bundleID: suiteName))
+        XCTAssertTrue(reset.perform(.savedWords, dbPath: dbPath, defaultDBPath: dbPath, bundleID: suiteName))
         XCTAssertEqual(backend.calls, ["clearSaved"])
     }
 
@@ -73,7 +81,7 @@ final class DataResetTests: XCTestCase {
         let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
         defaults.set(42, forKey: "thresholdC")
 
-        XCTAssertTrue(reset.perform(.everything, dbPath: dbPath, bundleID: suiteName))
+        XCTAssertTrue(reset.perform(.everything, dbPath: dbPath, defaultDBPath: dbPath, bundleID: suiteName))
 
         XCTAssertEqual(backend.calls, ["close", "open"],
                        "phải đóng trước khi xoá file rồi mở lại — thiếu bước mở lại thì app mất db")
@@ -91,7 +99,7 @@ final class DataResetTests: XCTestCase {
         backend.clearHistorySucceeds = false
         let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
 
-        XCTAssertFalse(reset.perform(.history, dbPath: dbPath, bundleID: suiteName))
+        XCTAssertFalse(reset.perform(.history, dbPath: dbPath, defaultDBPath: dbPath, bundleID: suiteName))
     }
 
     func testSavedWordsClearFailureIsReportedNotSwallowed() {
@@ -99,7 +107,7 @@ final class DataResetTests: XCTestCase {
         backend.clearSavedWordsSucceeds = false
         let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
 
-        XCTAssertFalse(reset.perform(.savedWords, dbPath: dbPath, bundleID: suiteName))
+        XCTAssertFalse(reset.perform(.savedWords, dbPath: dbPath, defaultDBPath: dbPath, bundleID: suiteName))
     }
 
     /// Ca nghiêm trọng nhất: nếu mở lại store sau khi wipe thất bại, app còn
@@ -110,7 +118,7 @@ final class DataResetTests: XCTestCase {
         backend.openStoreSucceeds = false
         let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
 
-        XCTAssertFalse(reset.perform(.everything, dbPath: dbPath, bundleID: suiteName))
+        XCTAssertFalse(reset.perform(.everything, dbPath: dbPath, defaultDBPath: dbPath, bundleID: suiteName))
     }
 
     // MARK: - Dọn companion file
@@ -127,10 +135,49 @@ final class DataResetTests: XCTestCase {
         try Data("wal".utf8).write(to: walPath)
         try Data("shm".utf8).write(to: shmPath)
 
-        XCTAssertTrue(reset.perform(.everything, dbPath: dbPath, bundleID: suiteName))
+        XCTAssertTrue(reset.perform(.everything, dbPath: dbPath, defaultDBPath: dbPath, bundleID: suiteName))
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: dbPath.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: walPath.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: shmPath.path))
+    }
+
+    // MARK: - Không mồ côi db đã relocate
+
+    /// Ca chính của FIX 1 (fix round 2): db đang sống ở một thư mục người
+    /// dùng từng tự chuyển tới (`dbPath` ≠ `defaultDBPath`). `.everything`
+    /// xoá domain UserDefaults — tức xoá luôn override — nên phải mở lại ở
+    /// `defaultDBPath`; mở lại ở `dbPath` cũ sẽ khiến lần khởi động SAU
+    /// (không còn override) đi tìm db ở `defaultDBPath` trong khi dữ liệu
+    /// thật nằm ở `dbPath` — mồ côi vĩnh viễn, không báo gì cho người dùng.
+    func testEverythingReopensAtTheDefaultPathNotTheRelocatedOne() throws {
+        let customDir = tmp.appendingPathComponent("custom")
+        try FileManager.default.createDirectory(at: customDir, withIntermediateDirectories: true)
+        let customDB = customDir.appendingPathComponent("ktranslate.db")
+        try Data("payload".utf8).write(to: customDB)
+
+        let defaultDB = tmp.appendingPathComponent("default").appendingPathComponent("ktranslate.db")
+
+        let backend = SpyBackend()
+        let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
+
+        XCTAssertTrue(reset.perform(.everything, dbPath: customDB, defaultDBPath: defaultDB, bundleID: suiteName))
+
+        XCTAssertEqual(backend.openedPaths, [defaultDB],
+                       "phải mở lại ở default path — mở lại ở chỗ tuỳ chỉnh cũ sẽ làm mồ côi db đó lần khởi động sau")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: customDB.path),
+                       "db cũ ở thư mục tuỳ chỉnh phải bị xoá, không được để sót lại")
+    }
+
+    /// Ca thường (đa số các test khác trong file này cũng đi qua nhánh này):
+    /// db chưa từng bị relocate, `dbPath == defaultDBPath`. Ghi lại tường
+    /// minh để không lẫn với ca relocate ở trên.
+    func testEverythingReopensAtTheSamePathWhenNeverRelocated() {
+        let backend = SpyBackend()
+        let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
+
+        XCTAssertTrue(reset.perform(.everything, dbPath: dbPath, defaultDBPath: dbPath, bundleID: suiteName))
+
+        XCTAssertEqual(backend.openedPaths, [dbPath])
     }
 }
