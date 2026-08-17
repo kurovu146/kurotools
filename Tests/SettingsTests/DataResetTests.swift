@@ -4,6 +4,12 @@ import XCTest
 
 private final class SpyBackend: TranslateBackend {
     var calls: [String] = []
+    /// Cờ để dựng ca "backend báo thất bại" — mặc định `true` để các test cũ
+    /// (chỉ quan tâm thứ tự gọi) không phải set gì thêm.
+    var clearHistorySucceeds = true
+    var clearSavedWordsSucceeds = true
+    var openStoreSucceeds = true
+
     func capture() -> CaptureOutcome { .empty }
     func lookup(_ text: String, completion: @escaping (Lookup) -> Void) {}
     func languages() -> [String] { [] }
@@ -17,10 +23,10 @@ private final class SpyBackend: TranslateBackend {
     func isSaved(_ word: String) -> Bool { false }
     func setSaved(_ word: String, saved: Bool) -> Bool { true }
 
-    func clearHistory() -> Bool { calls.append("clearHistory"); return true }
-    func clearSavedWords() -> Bool { calls.append("clearSaved"); return true }
+    func clearHistory() -> Bool { calls.append("clearHistory"); return clearHistorySucceeds }
+    func clearSavedWords() -> Bool { calls.append("clearSaved"); return clearSavedWordsSucceeds }
     func closeStore() -> Bool { calls.append("close"); return true }
-    func openStore(at dbPath: URL) -> Bool { calls.append("open"); return true }
+    func openStore(at dbPath: URL) -> Bool { calls.append("open"); return openStoreSucceeds }
 }
 
 final class DataResetTests: XCTestCase {
@@ -74,5 +80,57 @@ final class DataResetTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: "thresholdC") as? Int, nil)
         XCTAssertFalse(FileManager.default.fileExists(atPath: dbPath.path),
                        "file cũ đã bị xoá; store mở lại sẽ dựng schema mới")
+    }
+
+    // MARK: - Lỗi từ backend không được nuốt
+
+    /// Nếu `clearHistory()` thất bại, `perform` PHẢI trả `false` — nuốt lỗi ở
+    /// đây nghĩa là UI báo "đã xoá" trong khi dữ liệu vẫn còn nguyên.
+    func testHistoryClearFailureIsReportedNotSwallowed() {
+        let backend = SpyBackend()
+        backend.clearHistorySucceeds = false
+        let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
+
+        XCTAssertFalse(reset.perform(.history, dbPath: dbPath, bundleID: suiteName))
+    }
+
+    func testSavedWordsClearFailureIsReportedNotSwallowed() {
+        let backend = SpyBackend()
+        backend.clearSavedWordsSucceeds = false
+        let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
+
+        XCTAssertFalse(reset.perform(.savedWords, dbPath: dbPath, bundleID: suiteName))
+    }
+
+    /// Ca nghiêm trọng nhất: nếu mở lại store sau khi wipe thất bại, app còn
+    /// lại KHÔNG CÓ db nào đang mở — caller phải biết để báo người dùng khởi
+    /// động lại, không phải im lặng coi như xong.
+    func testEverythingReopenFailureIsReportedNotSwallowed() {
+        let backend = SpyBackend()
+        backend.openStoreSucceeds = false
+        let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
+
+        XCTAssertFalse(reset.perform(.everything, dbPath: dbPath, bundleID: suiteName))
+    }
+
+    // MARK: - Dọn companion file
+
+    /// Journal mode của db là `delete` nên `-wal`/`-shm` thường không tồn
+    /// tại — vòng lặp xoá chúng trong `.everything` là phòng thủ. Test nó
+    /// vẫn cần, vì phòng thủ không ai đo thì âm thầm ngừng hoạt động lúc nào
+    /// không biết.
+    func testResettingEverythingDeletesWalAndShmCompanions() throws {
+        let backend = SpyBackend()
+        let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
+        let walPath = URL(fileURLWithPath: dbPath.path + "-wal")
+        let shmPath = URL(fileURLWithPath: dbPath.path + "-shm")
+        try Data("wal".utf8).write(to: walPath)
+        try Data("shm".utf8).write(to: shmPath)
+
+        XCTAssertTrue(reset.perform(.everything, dbPath: dbPath, bundleID: suiteName))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dbPath.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: walPath.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shmPath.path))
     }
 }
