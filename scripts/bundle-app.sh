@@ -23,6 +23,7 @@ cp "$ROOT/Sources/KuroTools/Info.plist" "$APP/Contents/"
 mkdir -p "$APP/Contents/Library/LaunchAgents"
 cp Sources/KuroTools/LaunchAgent.plist "$APP/Contents/Library/LaunchAgents/com.kuro.kurotools.app.plist"
 
+# ⚠️ PHẢI là bước ghi cuối cùng vào $APP — bước nào copy/ghi thêm SAU đây sẽ nằm ngoài resource seal, và "valid on disk" vẫn báo im lặng dù nội dung đã đổi sau khi ký.
 # Chữ ký ỔN ĐỊNH ngăn mỗi lần rebuild thu hồi quyền Accessibility.
 codesign --force --options runtime --sign "$IDENTITY" "$APP"
 codesign --verify --verbose "$APP"
