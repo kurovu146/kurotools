@@ -360,24 +360,37 @@ public final class SettingsModel: ObservableObject {
     /// không", tức `hotkey == .default`.
     private func hotkeyOutcomeAfterReset() -> String {
         let restored = HotkeyCombo.default.displayString
-        guard hotkey != .default else {
+        // Liệt kê thẳng cả BỐN ô của `(tổ hợp mặc định có phải tổ hợp hiện tại
+        // không) × (nó có đang sống với hệ thống không)`. Mỗi lần trước đây
+        // chọn MỘT trong hai vị từ này làm cổng cho nhánh "thành công" đều
+        // đúng ở một ô và nói dối ở ô kia — `hotkeyIsRegistered` một mình nói
+        // dối khi người dùng có tổ hợp riêng, `hotkey == .default` một mình
+        // nói dối khi người dùng CHƯA từng đổi phím tắt và ⇧⌘D đang bị chiếm.
+        // Chỉ ô (đúng, đúng) mới là thành công.
+        //
+        // Preference đã bị xoá sạch nên `HotkeyPreference.load` ở lần khởi
+        // động sau trả `.default` — cấu hình ĐÃ về ⇧⌘D đúng spec §6 mức 3 ở cả
+        // bốn ô; ba ô còn lại chỉ khác nhau ở chỗ CÁI GÌ đang thật sự sống.
+        switch (hotkey == .default, hotkeyIsRegistered) {
+        case (true, true):
             return "phím tắt trở lại \(restored)."
-        }
-        // Preference đã bị xoá sạch nên lần khởi động sau `HotkeyPreference.load`
-        // trả về `.default` — tức cấu hình ĐÃ về ⇧⌘D đúng như spec. Nhưng
-        // ⇧⌘D đang bị app khác giữ, nên lần khởi động đó hotkey sẽ không bắn.
-        // Phải nói cả hai nửa, và nói cả thứ đang thật sự chạy NGAY BÂY GIỜ.
-        guard hotkeyIsRegistered else {
+        case (true, false), (false, false):
+            // Không có gì đang sống: hoặc ⇧⌘D bị chiếm và không có tổ hợp cũ
+            // nào để quay về, hoặc quay về rồi mà đăng ký lại cũng hỏng.
             return """
             cấu hình phím tắt đã về \(restored) nhưng \(restored) đang bị app khác giữ — \
             hiện không có phím tắt nào hoạt động, chọn tổ hợp khác trong tab Chung.
             """
+        case (false, true):
+            // Controller đã rollback về tổ hợp cũ và tổ hợp đó vẫn sống — nói
+            // rõ cả thứ đang chạy NGAY BÂY GIỜ lẫn chuyện lần khởi động sau
+            // sẽ không còn nó.
+            return """
+            cấu hình phím tắt đã về \(restored) nhưng \(restored) đang bị app khác giữ — \
+            hiện vẫn đang chạy \(hotkey.displayString), và lần khởi động sau phím tắt sẽ \
+            không hoạt động. Chọn tổ hợp khác trong tab Chung.
+            """
         }
-        return """
-        cấu hình phím tắt đã về \(restored) nhưng \(restored) đang bị app khác giữ — \
-        hiện vẫn đang chạy \(hotkey.displayString), và lần khởi động sau phím tắt sẽ \
-        không hoạt động. Chọn tổ hợp khác trong tab Chung.
-        """
     }
 
     /// Đánh dấu "có một store chắc chắn đang mở". Gọi ở MỌI đường kết thúc như

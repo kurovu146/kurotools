@@ -45,11 +45,14 @@ private final class StubBackend: TranslateBackend {
     func langConfig() -> LangConfig? { config }
     /// Bắt chước `LangConfig::new` phía Rust: LƯU giá trị mới (nên
     /// `langConfig()` sau đó trả về thứ KHÁC trước) và tự sửa va chạm
-    /// đích-trùng-phụ. Một stub trả nguyên `config` cũ sẽ làm test xanh giả:
-    /// giá trị cũ trong model tình cờ trùng kỳ vọng.
+    /// đích-trùng-phụ bằng `default_other(target)` — "en", hoặc "vi" khi chính
+    /// đích là "en" (`crates/ktranslate-core/src/config.rs:102`). Giữ nguyên
+    /// `other` cũ như bản trước là một luật KHÁC, chỉ tình cờ trùng kết quả
+    /// trên fixture hiện tại. Một stub trả nguyên `config` cũ thì còn tệ hơn:
+    /// giá trị cũ trong model tình cờ trùng kỳ vọng nên test xanh giả.
     func setLangConfig(source: String?, target: String, other: String) -> LangConfig? {
         guard setLangConfigSucceeds else { return nil }
-        let fixedOther = other == target ? (config?.other ?? "en") : other
+        let fixedOther = other == target ? (target == "en" ? "vi" : "en") : other
         config = LangConfig(source: source, target: target, other: fixedOther)
         return config
     }
@@ -127,6 +130,9 @@ private final class SpyTranslate: TranslateControlling {
     var journal: CallJournal?
 
     func applyHotkey(_ combo: HotkeyCombo) -> Bool {
+        // Khớp `TranslateController.applyHotkey`: guard `isValid` đứng TRƯỚC
+        // mọi thay đổi trạng thái và trước cả việc ghi nhận lời gọi.
+        guard combo.isValid else { return false }
         applied.append(combo)
         journal?.entries.append("applyHotkey")
         guard applyResult else {
@@ -510,56 +516,105 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue(model.hotkeyIsRegistered)
     }
 
-    func testAFullResetNamesTheDefaultComboInTheMessage() {
-        let spy = SpyTranslate()
-        let model = makeModel(translate: spy)
+    // MARK: - Bảng 2×2 của thông điệp hotkey sau khi xoá sạch
+    //
+    // Hai round trước mỗi round chọn MỘT vị từ (`hotkeyIsRegistered`, rồi
+    // `hotkey == .default`) và mỗi cái đúng ở một ô, sai ở ô kia. Nên ở đây
+    // liệt kê thẳng cả bốn ô của `(hotkey == .default) × hotkeyIsRegistered`,
+    // mỗi ô một test mang đúng tên ô đó. Không ô nào được nói một câu sai.
 
-        model.reset(.everything)
-
-        XCTAssertTrue(model.status?.contains(HotkeyCombo.default.displayString) == true,
-                      "phải gọi tên đúng tổ hợp vừa khôi phục, thấy: \(model.status ?? "nil")")
+    /// Bất biến chung cho cả bốn ô: khi tab Chung đang treo cảnh báo "phím tắt
+    /// KHÔNG hoạt động" (`hotkeyIsRegistered == false`), dòng phản hồi ngay
+    /// dưới nó KHÔNG được khoe thành công. Hai câu mâu thuẫn trong cùng một
+    /// cửa sổ là đúng thứ mà cả round 1 lẫn round 2 đã tạo ra.
+    private func assertNoFalseComfort(
+        _ model: SettingsModel, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        guard !model.hotkeyIsRegistered else { return }
+        XCTAssertFalse(
+            model.status?.contains("phím tắt trở lại") == true,
+            "cảnh báo trong tab nói phím tắt KHÔNG hoạt động, dòng này lại khoe đã trở lại: \(model.status ?? "nil")",
+            file: file, line: line)
     }
 
-    /// 🔑 FIX A. `applyHotkey` ROLLBACK khi tổ hợp mới bị chiếm: nó đăng ký lại
-    /// tổ hợp CŨ và đặt `isHotkeyRegistered` theo kết quả lần đăng ký lại đó —
-    /// gần như luôn `true`. Rẽ nhánh theo cờ ấy vì vậy rơi vào nhánh THÀNH
-    /// CÔNG và khoe "phím tắt trở lại ⌃⌥L", gọi tên tổ hợp CŨ, trong khi
-    /// spec §6 mức 3 nói reset phải đưa phím tắt về ⇧⌘D.
-    func testAFullResetTellsTheTruthWhenTheDefaultComboIsTaken() {
+    /// Ô (default, registered): đường thành công thật.
+    func testResetMessageWhenTheDefaultIsBackAndRegistered() {
         let spy = SpyTranslate()
-        let taken = spy.currentHotkey
-        spy.applyResult = false        // ⇧⌘D bị app khác giữ
-        spy.restoreSucceeds = true     // đăng ký lại tổ hợp cũ thì được
         let model = makeModel(translate: spy)
 
         model.reset(.everything)
 
-        XCTAssertEqual(model.hotkey, taken, "controller đã rollback về tổ hợp cũ")
-        XCTAssertTrue(model.hotkeyIsRegistered, "tổ hợp cũ vẫn đang sống — đúng đường rollback")
+        XCTAssertEqual(model.hotkey, .default)
+        XCTAssertTrue(model.hotkeyIsRegistered)
+        XCTAssertEqual(model.status?.contains("phím tắt trở lại \(HotkeyCombo.default.displayString)."), true,
+                       "thấy: \(model.status ?? "nil")")
+        assertNoFalseComfort(model)
+    }
+
+    /// 🔑 Ô (default, KHÔNG registered) — ô mà round 2 nói sai. Người dùng
+    /// CHƯA từng đổi phím tắt (trạng thái mặc định của app) và ⇧⌘D đang bị
+    /// app khác giữ: `hotkey == .default` đúng, nên nhánh "thành công" bắn,
+    /// trong khi cảnh báo cam ngay phía trên nói phím tắt không hoạt động.
+    func testResetMessageWhenTheDefaultIsBackButNotRegistered() {
+        let spy = SpyTranslate()
+        spy.currentHotkey = .default    // chưa bao giờ đổi phím tắt
+        spy.applyResult = false         // ⇧⌘D bị app khác giữ
+        spy.restoreSucceeds = false     // đăng ký lại chính ⇧⌘D cũng hỏng vì thế
+        let model = makeModel(translate: spy)
+
+        model.reset(.everything)
+
+        XCTAssertEqual(model.hotkey, .default)
+        XCTAssertFalse(model.hotkeyIsRegistered)
         let status = model.status ?? ""
-        XCTAssertFalse(status.contains("trở lại \(taken.displayString)"),
+        XCTAssertTrue(status.contains("không có phím tắt nào hoạt động"),
+                      "phải nói thẳng là hiện KHÔNG có phím tắt nào, thấy: \(status)")
+        XCTAssertTrue(status.contains("bị app khác giữ"), "thấy: \(status)")
+        assertNoFalseComfort(model)
+    }
+
+    /// Ô (KHÔNG default, registered): ⇧⌘D bị chiếm, controller rollback về tổ
+    /// hợp cũ và tổ hợp cũ vẫn sống.
+    func testResetMessageWhenTheDefaultIsTakenAndTheOldComboIsStillLive() {
+        let spy = SpyTranslate()
+        let old = spy.currentHotkey
+        spy.applyResult = false
+        spy.restoreSucceeds = true
+        let model = makeModel(translate: spy)
+
+        model.reset(.everything)
+
+        XCTAssertEqual(model.hotkey, old)
+        XCTAssertTrue(model.hotkeyIsRegistered)
+        let status = model.status ?? ""
+        XCTAssertFalse(status.contains("trở lại \(old.displayString)"),
                        "KHÔNG được khoe đã trở lại tổ hợp CŨ, thấy: \(status)")
         XCTAssertTrue(status.contains(HotkeyCombo.default.displayString),
-                      "phải nói rõ cấu hình đã về \(HotkeyCombo.default.displayString), thấy: \(status)")
-        XCTAssertTrue(status.contains("bị app khác giữ"),
-                      "phải nói ⇧⌘D đang bị chiếm, thấy: \(status)")
-        XCTAssertTrue(status.contains(taken.displayString),
+                      "phải nói cấu hình đã về \(HotkeyCombo.default.displayString), thấy: \(status)")
+        XCTAssertTrue(status.contains("bị app khác giữ"), "thấy: \(status)")
+        XCTAssertTrue(status.contains("đang chạy \(old.displayString)"),
                       "và nói rõ cái đang thật sự chạy lúc này, thấy: \(status)")
+        assertNoFalseComfort(model)
     }
 
-    /// Nhánh hỏng kép: tổ hợp mặc định bị chiếm VÀ đăng ký lại tổ hợp cũ cũng
-    /// hỏng — lúc này không có phím tắt nào sống cả.
-    func testAFullResetSaysThereIsNoLiveHotkeyWhenEvenTheRestoreFails() {
+    /// Ô (KHÔNG default, KHÔNG registered): hỏng kép — ⇧⌘D bị chiếm và đăng ký
+    /// lại tổ hợp cũ cũng hỏng, không còn phím tắt nào sống.
+    func testResetMessageWhenTheDefaultIsTakenAndNothingIsLive() {
         let spy = SpyTranslate()
+        let old = spy.currentHotkey
         spy.applyResult = false
         spy.restoreSucceeds = false
         let model = makeModel(translate: spy)
 
         model.reset(.everything)
 
+        XCTAssertEqual(model.hotkey, old)
         XCTAssertFalse(model.hotkeyIsRegistered)
-        XCTAssertTrue(model.status?.contains("không có phím tắt nào") == true,
-                      "thấy: \(model.status ?? "nil")")
+        let status = model.status ?? ""
+        XCTAssertTrue(status.contains("không có phím tắt nào hoạt động"), "thấy: \(status)")
+        XCTAssertFalse(status.contains("đang chạy \(old.displayString)"),
+                       "không có gì đang chạy — đừng nói là có, thấy: \(status)")
+        assertNoFalseComfort(model)
     }
 
     /// 🔑 `removePersistentDomain` dọn kho preference, nhưng `VitalsController`

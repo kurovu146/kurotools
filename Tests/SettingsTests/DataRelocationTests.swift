@@ -92,7 +92,10 @@ final class DataRelocationTests: XCTestCase {
             currentDB: currentDB, toDirectory: target, store: store,
             fileManager: .default, verdict: { _ in .ok }, now: Date())
 
-        guard case .failed = outcome else { return XCTFail("expected .failed, got \(outcome)") }
+        // So TOÀN BỘ outcome, không chỉ `case .failed`: `storeIsOpen` là thứ
+        // caller dùng để quyết định có gỡ cảnh báo "khởi động lại" hay không,
+        // và guard này return TRƯỚC khi store bị đụng tới nên nó PHẢI là false.
+        XCTAssertEqual(outcome, .failed("Đã có ktranslate.db trong thư mục đích.", storeIsOpen: false))
         XCTAssertEqual(try Data(contentsOf: target.appendingPathComponent("ktranslate.db")),
                        Data("other".utf8), "file sẵn có ở đích không được đụng tới")
         XCTAssertEqual(store.calls, [])
@@ -107,7 +110,9 @@ final class DataRelocationTests: XCTestCase {
             currentDB: currentDB, toDirectory: target, store: store,
             fileManager: .default, verdict: { _ in .ok }, now: Date())
 
-        guard case .failed = outcome else { return XCTFail("expected .failed, got \(outcome)") }
+        // Rollback đã mở lại được db cũ → đây là đường DUY NHẤT `.failed` được
+        // phép mang `storeIsOpen: true`.
+        XCTAssertEqual(outcome, .failed("Db ở chỗ mới mở được nhưng không đọc được.", storeIsOpen: true))
         XCTAssertTrue(FileManager.default.fileExists(atPath: currentDB.path),
                       "db cũ phải còn nguyên chỗ cũ")
         XCTAssertFalse(
@@ -126,7 +131,7 @@ final class DataRelocationTests: XCTestCase {
             currentDB: currentDB, toDirectory: target, store: store,
             fileManager: .default, verdict: { _ in .ok }, now: Date())
 
-        guard case .failed = outcome else { return XCTFail("expected .failed, got \(outcome)") }
+        XCTAssertEqual(outcome, .failed("Không mở được db ở chỗ mới.", storeIsOpen: true))
         XCTAssertEqual(store.openPaths.last, currentDB)
         XCTAssertTrue(FileManager.default.fileExists(atPath: currentDB.path))
         XCTAssertFalse(
@@ -167,7 +172,7 @@ final class DataRelocationTests: XCTestCase {
             currentDB: currentDB, toDirectory: target, store: store,
             fileManager: .default, verdict: { _ in .ok }, now: Date())
 
-        guard case .failed = outcome else { return XCTFail("expected .failed, got \(outcome)") }
+        XCTAssertEqual(outcome, .failed("Không ghi được vào thư mục đích.", storeIsOpen: false))
         XCTAssertEqual(store.calls, [], "thư mục đích không ghi được thì không được đụng tới store")
         XCTAssertTrue(FileManager.default.fileExists(atPath: currentDB.path))
     }
@@ -198,7 +203,9 @@ final class DataRelocationTests: XCTestCase {
             currentDB: currentDB, toDirectory: target, store: store,
             fileManager: .default, verdict: { _ in .ok }, now: Date())
 
-        guard case .failed = outcome else { return XCTFail("expected .failed, got \(outcome)") }
+        // `closeStore()` trả false = "chưa đóng được gì", nhưng nó không nói
+        // store CÓ đang mở hay không → payload phải là false, không suy đoán.
+        XCTAssertEqual(outcome, .failed("Không đóng được store hiện tại.", storeIsOpen: false))
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: target.appendingPathComponent("ktranslate.db").path),
             "không được copy khi chưa chắc store đã đóng")
