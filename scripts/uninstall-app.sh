@@ -4,7 +4,10 @@ set -euo pipefail
 # Giữ y hệt `install-app.sh` — cùng một bản cài. `LoginItemTests` ràng cả hai
 # vào `ProgramArguments` của LaunchAgent.plist trong bundle.
 DEST="/Applications/KuroTools.app"
-LEGACY_PLIST="$HOME/Library/LaunchAgents/com.kuro.kurovitals.app.plist"
+# Xem chú thích trong install-app.sh: sau M2 không LaunchAgent nào của app
+# được phép nằm trong ~/Library/LaunchAgents. Bản uninstall cũ chỉ biết tới
+# `com.kuro.kurovitals.app` và bỏ sót cái trùng label với agent trong bundle.
+LEGACY_LABELS="com.kuro.kurovitals.app com.kuro.kurotools.app"
 
 # Login item do `SMAppService` đăng ký từ BÊN TRONG app, và chỉ chính app mới
 # huỷ đăng ký được (`SMAppService.unregister()`) — script không có đường nào
@@ -24,12 +27,12 @@ fi
 
 rm -rf "$DEST"
 
-if [ -f "$LEGACY_PLIST" ]; then
-  # LaunchAgent viết tay của thời KuroVitals: label riêng, launchd coi là một
-  # autostart hoàn toàn khác, nên phải gỡ ở đây — bản uninstall cũ chỉ biết
-  # tới nó và không biết gì về bundle ở $DEST.
-  launchctl bootout "gui/$(id -u)/com.kuro.kurovitals.app" 2>/dev/null || true
-  rm -f "$LEGACY_PLIST"
-fi
+for label in $LEGACY_LABELS; do
+  plist="$HOME/Library/LaunchAgents/$label.plist"
+  [ -f "$plist" ] || continue
+  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+  rm -f "$plist"
+  echo "Đã gỡ LaunchAgent viết tay cũ ($label)."
+done
 
 echo "✓ Đã gỡ $DEST. Quạt trở lại Auto khi app thoát; helper root gỡ riêng bằng ./scripts/uninstall-helper.sh."

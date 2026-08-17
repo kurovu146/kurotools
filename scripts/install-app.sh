@@ -8,11 +8,18 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # đường dẫn không tồn tại — công tắc "Chạy khi đăng nhập" bật, và sáng hôm sau
 # app không lên. `LoginItemTests` ràng hai giá trị này lại với nhau.
 DEST="/Applications/KuroTools.app"
-# LaunchAgent viết tay của thời KuroVitals. Nó có LABEL RIÊNG
-# (`com.kuro.kurovitals.app`) nên launchd coi nó hoàn toàn khác login item mà
-# app tự đăng ký (`com.kuro.kurotools.app`): còn cả hai thì hai bản KuroTools
-# cùng tự chạy lúc đăng nhập, cùng giành SMC và cùng đăng ký một hotkey.
-LEGACY_PLIST="$HOME/Library/LaunchAgents/com.kuro.kurovitals.app.plist"
+# LaunchAgent viết tay còn sót trong ~/Library/LaunchAgents. Sau M2 KHÔNG có
+# cái nào trong hai cái này được phép tồn tại: agent hợp lệ duy nhất nằm TRONG
+# bundle và do `SMAppService` quản.
+#
+#  - `com.kuro.kurovitals.app`: bản `install-app.sh` cũ dựng ra. Label RIÊNG
+#    nên launchd coi nó hoàn toàn khác login item của app → hai bản KuroTools
+#    cùng tự chạy lúc đăng nhập, cùng giành SMC, cùng đăng ký một hotkey.
+#  - `com.kuro.kurotools.app`: nguy hiểm hơn vì nó TRÙNG label với agent trong
+#    bundle — hai định nghĩa cho cùng một label trong cùng một domain launchd,
+#    và công tắc "Chạy khi đăng nhập" không có cách nào gỡ được cái nằm ngoài
+#    bundle.
+LEGACY_LABELS="com.kuro.kurovitals.app com.kuro.kurotools.app"
 
 # Script này KHÔNG còn dựng autostart nào của riêng nó. Từ M2, "chạy khi đăng
 # nhập" là việc của chính app: `SMAppService.agent(plistName:)` + công tắc
@@ -42,14 +49,17 @@ fi
 rm -rf "$DEST"
 cp -R "$ROOT/KuroTools.app" "$DEST"
 
-if [ -f "$LEGACY_PLIST" ]; then
-  # Chỉ GỠ, không bao giờ tạo (xem chú thích ở $LEGACY_PLIST). `bootout` có thể
-  # báo lỗi nếu agent chưa được nạp — xoá file mới là phần quyết định cho lần
-  # đăng nhập sau.
-  launchctl bootout "gui/$(id -u)/com.kuro.kurovitals.app" 2>/dev/null || true
-  rm -f "$LEGACY_PLIST"
-  echo "Đã gỡ LaunchAgent viết tay cũ (com.kuro.kurovitals.app) — nó sẽ làm hai bản cùng tự chạy."
-fi
+for label in $LEGACY_LABELS; do
+  plist="$HOME/Library/LaunchAgents/$label.plist"
+  [ -f "$plist" ] || continue
+  # Chỉ GỠ, không bao giờ tạo (xem chú thích ở $LEGACY_LABELS). `bootout` có
+  # thể báo lỗi nếu agent chưa được nạp — xoá file mới là phần quyết định cho
+  # lần đăng nhập sau.
+  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+  rm -f "$plist"
+  echo "Đã gỡ LaunchAgent viết tay cũ ($label) — nó tranh chỗ với công tắc trong Settings."
+  echo "  → Bật lại 'Chạy khi đăng nhập' trong Settings ▸ Chung để app tự lên lúc đăng nhập."
+done
 
 open "$DEST"
 echo "✓ Đã cài $DEST và mở app."
