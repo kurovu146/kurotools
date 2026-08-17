@@ -21,10 +21,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard vitals.start() else { return }
         vitals.attach(menu: menu)
 
-        let lookupItem = NSMenuItem(title: "Tra từ đang chọn  ⌘⇧D",
-                                    action: #selector(triggerLookup), keyEquivalent: "")
-        lookupItem.target = self
-        vitals.extraItems = [lookupItem]
+        // Dựng LẠI mỗi lần dropdown mở, từ tổ hợp đang thật sự sống. Bản trước
+        // gán một `NSMenuItem` duy nhất với nhãn `⌘⇧D` gõ tay: đổi phím tắt
+        // trong Settings thì cửa sổ hiện tổ hợp mới còn menu vẫn quảng cáo tổ
+        // hợp cũ — và ngay ở mặc định hai chỗ đã mâu thuẫn, vì
+        // `HotkeyCombo.displayString` xếp theo thứ tự macOS (`⇧⌘D`).
+        vitals.extraItemsProvider = { [weak self] in
+            guard let self else { return [] }
+            let item = NSMenuItem(title: LookupMenuItem.title(for: translate.currentHotkey),
+                                  action: #selector(triggerLookup), keyEquivalent: "")
+            item.target = self
+            return [item]
+        }
 
         let dbPath = DatabaseLocation.resolve(appSupport: DatabaseMigration.defaultAppSupport())
         translate.start(dbPath: dbPath)

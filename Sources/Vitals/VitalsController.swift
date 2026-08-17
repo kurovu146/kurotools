@@ -35,7 +35,13 @@ public final class VitalsController: NSObject, NSMenuDelegate {
 
     /// Menu giờ dùng chung với module Translate, nên chủ sở hữu menu là
     /// AppDelegate của KuroTools chứ không phải controller này.
-    public var extraItems: [NSMenuItem] = []
+    ///
+    /// Một CLOSURE, không phải `[NSMenuItem]`: nhãn của những mục này chứa
+    /// trạng thái sống (tổ hợp phím tra từ), và một mảng gán một lần lúc khởi
+    /// động đóng băng nhãn ở giá trị lúc đó — đổi phím tắt trong Settings
+    /// xong, menu vẫn quảng cáo tổ hợp cũ cho tới lần khởi động sau. Được gọi
+    /// lại MỖI lần dropdown sắp mở.
+    public var extraItemsProvider: @MainActor () -> [NSMenuItem] = { [] }
 
     /// `AppDelegate` gán closure này — Vitals không được biết module Settings
     /// tồn tại (phụ thuộc phải một chiều).
@@ -164,6 +170,14 @@ public final class VitalsController: NSObject, NSMenuDelegate {
     public func menuNeedsUpdate(_ menu: NSMenu) {
         let s = reader.snapshot()
         lastSnapshot = s
+        rebuild(menu: menu, snapshot: s)
+    }
+
+    /// Tách khỏi `menuNeedsUpdate` để đo được: `menuNeedsUpdate` phải đọc
+    /// `reader`, thứ chỉ tồn tại sau `start()` — mà `start()` cần SMC thật và
+    /// không chạy được trong test. Phần dựng menu thì không cần gì ngoài một
+    /// `Snapshot`.
+    func rebuild(menu: NSMenu, snapshot s: Snapshot) {
         menuBar.populate(menu: menu, snapshot: s, settings: settings, target: self,
             applyFanPreset: #selector(applyFanPreset(_:)),
             autoFan: #selector(autoFan(_:)),
@@ -174,13 +188,16 @@ public final class VitalsController: NSObject, NSMenuDelegate {
             showProcesses: #selector(showProcesses),
             quit: #selector(quitApp))
 
-        if !extraItems.isEmpty {
+        // Gọi provider ở ĐÂY, không nhớ kết quả: nhãn phải mang trạng thái
+        // của lúc menu mở, không phải lúc app khởi động.
+        let extras = extraItemsProvider()
+        if !extras.isEmpty {
             // menuBar.populate() always ends with "Quit" as the last item —
             // insert ahead of it instead of appending, so extra items read as
             // part of the menu body (macOS convention keeps Quit last).
             let quitIndex = menu.items.count - 1
             menu.insertItem(.separator(), at: quitIndex)
-            for (offset, item) in extraItems.enumerated() {
+            for (offset, item) in extras.enumerated() {
                 menu.insertItem(item, at: quitIndex + 1 + offset)
             }
         }
