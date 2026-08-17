@@ -1,6 +1,9 @@
 import Foundation
 
 @_silgen_name("kt_init") private func kt_init(_ path: UnsafePointer<CChar>?) -> Bool
+@_silgen_name("kt_close") private func kt_close() -> Bool
+@_silgen_name("kt_clear_history") private func kt_clear_history() -> UnsafeMutablePointer<CChar>?
+@_silgen_name("kt_clear_saved") private func kt_clear_saved() -> UnsafeMutablePointer<CChar>?
 @_silgen_name("kt_string_free") private func kt_string_free(_ p: UnsafeMutablePointer<CChar>?)
 @_silgen_name("kt_capture") private func kt_capture() -> UnsafeMutablePointer<CChar>?
 @_silgen_name("kt_read_clipboard") private func kt_read_clipboard() -> UnsafeMutablePointer<CChar>?
@@ -52,6 +55,13 @@ public protocol TranslateBackend: AnyObject {
     /// phải HTTP — vẫn đưa nó ra khỏi main thread vì SQLite có thể bị khoá.
     func isSavedAsync(_ word: String, completion: @escaping (Bool) -> Void)
     @discardableResult func setSaved(_ word: String, saved: Bool) -> Bool
+
+    /// Vòng đời store — chỉ Settings dùng. Có default rỗng bên dưới để test
+    /// double hiện có không phải khai báo thêm thứ chúng không dùng.
+    func closeStore() -> Bool
+    func openStore(at dbPath: URL) -> Bool
+    func clearHistory() -> Bool
+    func clearSavedWords() -> Bool
 }
 
 extension TranslateBackend {
@@ -83,6 +93,11 @@ extension TranslateBackend {
             }
         }
     }
+
+    func closeStore() -> Bool { false }
+    func openStore(at dbPath: URL) -> Bool { false }
+    func clearHistory() -> Bool { false }
+    func clearSavedWords() -> Bool { false }
 }
 
 /// Lớp DUY NHẤT được phép chạm vào con trỏ C. Mọi hàm copy chuỗi sang Swift rồi
@@ -94,7 +109,12 @@ public final class KTranslateBridge: TranslateBackend, @unchecked Sendable {
     /// hiện — không bao giờ bị chặn.
     private let queue = DispatchQueue(label: "com.kurovu.kurotools.translate", qos: .userInitiated)
 
-    private init() {}
+    /// Không `private`: `StoreMaintenanceTests` cần dựng một instance RIÊNG,
+    /// tách khỏi `.shared` — mở/đóng/xoá store trong test không được đụng
+    /// vào state của app thật đang chạy chung tiến trình test. `queue` là
+    /// per-instance nên việc này an toàn; `STORE` phía Rust vẫn là global,
+    /// đúng như test muốn (đó chính là thứ nó đang xác minh).
+    init() {}
 
     private func takeString(_ ptr: UnsafeMutablePointer<CChar>?) -> String? {
         guard let ptr else { return nil }
@@ -197,5 +217,26 @@ public final class KTranslateBridge: TranslateBackend, @unchecked Sendable {
         word.withCString { ptr in
             takeJSON(saved ? kt_save_word(ptr) : kt_unsave_word(ptr), as: OkFlag.self)?.ok ?? false
         }
+    }
+
+    public func closeStore() -> Bool { kt_close() }
+
+    public func openStore(at dbPath: URL) -> Bool {
+        dbPath.path.withCString { kt_init($0) }
+    }
+
+    public func clearHistory() -> Bool { okFlag(from: kt_clear_history()) }
+
+    public func clearSavedWords() -> Bool { okFlag(from: kt_clear_saved()) }
+
+    /// Đọc `{"ok": bool}` rồi giải phóng con trỏ. Con trỏ PHẢI được free kể
+    /// cả khi JSON hỏng.
+    private func okFlag(from ptr: UnsafeMutablePointer<CChar>?) -> Bool {
+        guard let ptr else { return false }
+        defer { kt_string_free(ptr) }
+        guard let data = String(cString: ptr).data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return false }
+        return json["ok"] as? Bool ?? false
     }
 }
