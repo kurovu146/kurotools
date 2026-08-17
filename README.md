@@ -53,10 +53,15 @@ git clone https://github.com/kurovu146/kurovitals.git
 cd kurovitals
 ./scripts/build-release.sh        # build
 ./scripts/install-helper.sh       # install the root fan-control daemon (asks for sudo)
-./scripts/install-app.sh          # run in the background + start at login
+./scripts/install-app.sh          # build + sign the bundle, install it to /Applications
 ```
 
-Prefer to run it in the foreground instead of the background? Skip `install-app.sh` and run:
+Then, to have it start at login, turn on **Chạy khi đăng nhập** in *Settings ▸ Chung*. That
+toggle is the *only* autostart mechanism: the app registers its own LaunchAgent through
+`SMAppService`, using the plist shipped inside the bundle. `install-app.sh` never writes a
+LaunchAgent of its own — two competing ones would auto-start two copies at login.
+
+Prefer to run it in the foreground instead of installing it? Skip `install-app.sh` and run:
 
 ```bash
 make build && .build/debug/KuroTools
@@ -68,13 +73,17 @@ stale Rust core.)
 Removal:
 
 ```bash
-./scripts/uninstall-app.sh        # stop the background app + remove autostart
+./scripts/uninstall-app.sh        # quit the app + remove /Applications/KuroTools.app
 ./scripts/uninstall-helper.sh     # remove the root helper (fans return to system Auto)
 ```
 
-> The scripts run the binaries from `./.build/release/`, so keep the repo folder. After pulling
-> new code, re-run `install-helper.sh` (the GUI↔helper protocol may have changed) and
-> `install-app.sh`.
+> Turn the login-item toggle **off before** uninstalling: only the app itself can call
+> `SMAppService.unregister()`, so deleting the bundle first leaves a dangling "not found" entry in
+> *System Settings ▸ General ▸ Login Items*.
+>
+> The installed app runs from `/Applications`, not from the repo — but `install-helper.sh` still
+> installs the helper out of `./.build/release/`, so keep the repo folder. After pulling new code,
+> re-run `install-helper.sh` (the GUI↔helper protocol may have changed) and `install-app.sh`.
 
 ## Usage
 

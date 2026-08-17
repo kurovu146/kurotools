@@ -96,4 +96,61 @@ final class LoginItemTests: XCTestCase {
             "nguồn copy phải là \"$ROOT/Sources/KuroTools/LaunchAgent.plist\" (tuyệt đối); " +
             "dòng thật đọc được: \(copyLine)")
     }
+
+    // MARK: - Fix wave cuối M2 (FIX 1): hai script cài/gỡ phải nói cùng một thứ tiếng với bundle
+
+    /// `install-app.sh` cũ dựng một LaunchAgent viết tay trỏ vào
+    /// `.build/release/KuroTools` — một bản dev chưa ký, dưới một label THỨ BA
+    /// (`com.kuro.kurovitals.app`) mà `SMAppService` không biết gì. Bản mới chỉ
+    /// còn đưa bundle đã ký vào đúng chỗ `LaunchAgent.plist` trong bundle trỏ
+    /// tới. Ràng buộc thật nằm giữa HAI FILE: cài ra chỗ khác thì login item
+    /// đăng ký thành công mà launchd khởi động một đường dẫn không tồn tại.
+    func testTheInstallScriptsPutTheBundleWhereTheLaunchAgentPointsAt() throws {
+        let install = try String(
+            contentsOf: repoRoot().appendingPathComponent("scripts/install-app.sh"), encoding: .utf8)
+        let destLine = try XCTUnwrap(
+            install.components(separatedBy: .newlines).first { $0.hasPrefix("DEST=") },
+            "không tìm thấy dòng `DEST=` trong install-app.sh")
+        let dest = destLine
+            .dropFirst("DEST=".count)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+
+        let plistURL = repoRoot().appendingPathComponent("Sources/KuroTools/LaunchAgent.plist")
+        let plist = try XCTUnwrap(
+            try PropertyListSerialization.propertyList(
+                from: try Data(contentsOf: plistURL), format: nil) as? [String: Any])
+        let programArguments = try XCTUnwrap(plist["ProgramArguments"] as? [String])
+
+        XCTAssertEqual(
+            programArguments.first, "\(dest)/Contents/MacOS/KuroTools",
+            "install-app.sh cài vào \(dest) nhưng LaunchAgent trong bundle khởi động " +
+            "\(programArguments.first ?? "nil") — login item sẽ trỏ vào một đường dẫn không tồn tại")
+
+        let uninstall = try String(
+            contentsOf: repoRoot().appendingPathComponent("scripts/uninstall-app.sh"), encoding: .utf8)
+        XCTAssertTrue(
+            uninstall.contains("DEST=\"\(dest)\""),
+            "uninstall-app.sh phải gỡ đúng bản mà install-app.sh cài (\(dest)); " +
+            "bản cũ chỉ biết tới LaunchAgent viết tay và không gỡ được bundle nào cả")
+    }
+
+    /// Autostart giờ CHỈ thuộc về `SMAppService` (công tắc trong Settings). Một
+    /// script dựng thêm LaunchAgent riêng là dựng lại đúng mối nguy "hai bản
+    /// cùng tự chạy lúc đăng nhập" — hai label khác nhau nên launchd không hề
+    /// biết chúng là cùng một app.
+    ///
+    /// Chỉ soi hai script của APP: `install-helper.sh` PHẢI dựng LaunchDaemon
+    /// riêng (root, chạy trước khi đăng nhập) và không liên quan gì tới đây.
+    func testTheAppScriptsDoNotCreateASecondAutostartMechanism() throws {
+        for name in ["install-app.sh", "uninstall-app.sh"] {
+            let script = try String(
+                contentsOf: repoRoot().appendingPathComponent("scripts/\(name)"), encoding: .utf8)
+            XCTAssertFalse(script.contains("RunAtLoad"),
+                           "\(name) đang viết một plist autostart của riêng nó")
+            XCTAssertFalse(script.contains("launchctl load"),
+                           "\(name) đang nạp một LaunchAgent của riêng nó")
+            XCTAssertFalse(script.contains("launchctl bootstrap"),
+                           "\(name) đang nạp một LaunchAgent của riêng nó")
+        }
+    }
 }
