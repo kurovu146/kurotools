@@ -85,4 +85,42 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(model.loginItemState, .on,
                        "mở lại cửa sổ mà vẫn hiện bản nạp lần trước là đúng bug `.onAppear` chỉ chạy một lần")
     }
+
+    /// 🔑 Fix wave cuối M2 (FIX 3). Luồng duyệt đi RA KHỎI app: bật công tắc →
+    /// "cần duyệt" + nút Mở → System Settings → duyệt → quay lại đúng cửa sổ
+    /// vẫn đang mở. Không `show()` nào xảy ra trên đường về, nên dòng "còn một
+    /// bước" nằm lại sau khi bước đó đã xong — hỏng đúng luồng duy nhất mà
+    /// `.requiresApproval` tồn tại để phục vụ.
+    func testTheWindowRereadsTheSystemStateWhenTheAppBecomesActiveAgain() {
+        let model = sharedModel()
+        Self.loginItem.current = .requiresApproval
+        SettingsWindowController.show(model: model)
+        XCTAssertEqual(model.loginItemState, .requiresApproval, "setup")
+
+        // Người dùng duyệt trong System Settings rồi quay lại app.
+        Self.loginItem.current = .on
+        NotificationCenter.default.post(
+            name: NSApplication.didBecomeActiveNotification, object: NSApp)
+
+        XCTAssertEqual(model.loginItemState, .on,
+                       "quay lại app sau khi duyệt mà UI vẫn nói 'còn một bước' là bug FIX 3")
+    }
+
+    /// Mặt còn lại của cùng observer: `refreshFromSystem()` đọc xuống FFI và
+    /// app nhận `didBecomeActive` mỗi lần người dùng chạm vào menu bar hay
+    /// popup tra từ. Cửa sổ đã đóng thì không có ai nhìn kết quả.
+    func testTheActivationRefreshIsSkippedWhileTheWindowIsClosed() throws {
+        let model = sharedModel()
+        Self.loginItem.current = .off
+        SettingsWindowController.show(model: model)
+        try XCTUnwrap(settingsWindows().first).close()
+        XCTAssertEqual(model.loginItemState, .off, "setup")
+
+        Self.loginItem.current = .on
+        NotificationCenter.default.post(
+            name: NSApplication.didBecomeActiveNotification, object: NSApp)
+
+        XCTAssertEqual(model.loginItemState, .off,
+                       "cửa sổ đóng thì không nạp lại — lần `show()` kế tiếp mới là lúc cần đọc hệ thống")
+    }
 }

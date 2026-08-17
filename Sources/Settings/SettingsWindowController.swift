@@ -61,6 +61,11 @@ public final class SettingsWindowController {
     /// luôn truyền đúng tham chiếu đó vào `show(model:)`. `var`, không phải
     /// `let`: `adopt(_:)` bên dưới là lối thoát khi bất biến đó lỡ bị phá.
     private var model: SettingsModel
+    /// Token của observer `didBecomeActive`. Giữ lại để `deinit` gỡ được —
+    /// cửa sổ này sống suốt vòng đời app nên đường đó gần như không bao giờ
+    /// chạy, nhưng một observer block đăng ký mà không có đường gỡ là một cái
+    /// bẫy chờ người sau đổi vòng đời của `shared`.
+    private var activationObserver: NSObjectProtocol?
 
     private init(model: SettingsModel) {
         self.model = model
@@ -77,6 +82,39 @@ public final class SettingsWindowController {
         // `shared` giả định.
         window.isReleasedWhenClosed = false
         window.center()
+
+        // Luồng duyệt login item ĐI RA KHỎI app rồi quay lại đúng cửa sổ này:
+        // bật công tắc → tab hiện "còn một bước" + nút Mở → `NSWorkspace.open`
+        // đưa người dùng sang System Settings → họ duyệt → họ quay lại. Không
+        // có `show()` nào trên đường về, và `.onAppear` thì chỉ chạy đúng một
+        // lần cho cả vòng đời app, nên dòng "còn một bước" nằm lại y nguyên
+        // sau khi bước đó đã xong — đúng luồng DUY NHẤT mà `.requiresApproval`
+        // tồn tại để phục vụ.
+        //
+        // `queue: nil`, không phải `.main`: block chạy ĐỒNG BỘ trên thread
+        // post, và `NSApplication` luôn post notification này trên main
+        // thread. Đẩy qua một OperationQueue chỉ thêm một khung hình trong đó
+        // cửa sổ vẫn hiện trạng thái cũ.
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshOnActivation() }
+        }
+    }
+
+    deinit {
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+        }
+    }
+
+    /// Chỉ nạp lại khi cửa sổ đang mở. `refreshFromSystem()` đọc xuống FFI, và
+    /// app nhận `didBecomeActive` mỗi lần người dùng chạm vào bất cứ thứ gì
+    /// của nó (menu bar, popup tra từ) — trả cái giá đó cho một cửa sổ đã đóng
+    /// là công không ai nhìn thấy.
+    private func refreshOnActivation() {
+        guard window.isVisible else { return }
+        model.refreshFromSystem()
     }
 
     public static func show(model: SettingsModel) {
