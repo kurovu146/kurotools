@@ -66,6 +66,18 @@ public struct DataReset {
             // một guard sáu dòng chú thích; chỗ này phải gác y hệt.
             guard backend.closeStore() else { return .failedNothingRemoved }
             remove(databaseAt: dbPath)
+            // Db ở chỗ MẶC ĐỊNH có thể vẫn còn sống dù db đang dùng nằm chỗ
+            // khác: `DataRelocation` cố ý chấp nhận `moveItem` thất bại (db
+            // mới đã chạy rồi, đổi tên bản cũ không được chỉ là phiền) và để
+            // `ktranslate.db` nằm lại chỗ cũ. `openStore(defaultDBPath)` ngay
+            // dưới đây sẽ hạ cánh đúng lên file đó — người dùng gõ XOÁ, đọc
+            // "Đã xoá sạch", rồi mở lại app và thấy nguyên lịch sử cũ.
+            //
+            // Cố ý KHÔNG đụng tới các bản `*.moved-<stamp>`: đó là backup do
+            // chính app tạo ra và đã nói địa chỉ cho người dùng.
+            if defaultDBPath.standardizedFileURL.path != dbPath.standardizedFileURL.path {
+                remove(databaseAt: defaultDBPath)
+            }
             defaults.removePersistentDomain(forName: bundleID)
             // Mở lại ở DEFAULT, không phải `dbPath`: xoá domain UserDefaults ở
             // trên đã xoá luôn `DatabaseLocation.overrideKey`, nên lần khởi

@@ -214,4 +214,41 @@ final class DataResetTests: XCTestCase {
         XCTAssertEqual(defaults.integer(forKey: "thresholdC"), 42,
                        "chưa xoá được db thì cũng chưa được xoá preference — nửa vời còn tệ hơn không làm")
     }
+
+    // MARK: - Fix wave cuối M2 (FIX 7): db ở chỗ MẶC ĐỊNH cũng phải chết
+
+    /// 🔑 `DataRelocation` cố ý chấp nhận `moveItem` thất bại: db mới đã chạy
+    /// rồi, không đổi tên được bản cũ chỉ là phiền — nên `ktranslate.db` nằm
+    /// lại ở chỗ mặc định. "Xoá sạch" từ chỗ đã chuyển tới sẽ xoá db ở
+    /// `dbPath` rồi mở lại ở `defaultDBPath`, hạ cánh đúng lên bản cũ còn
+    /// sống: UI nói "Đã xoá sạch", người dùng đã gõ XOÁ, và toàn bộ lịch sử
+    /// cũ vẫn còn đó.
+    func testEverythingAlsoRemovesASurvivingDatabaseAtTheDefaultPath() throws {
+        let customDir = tmp.appendingPathComponent("custom")
+        let defaultDir = tmp.appendingPathComponent("default")
+        for dir in [customDir, defaultDir] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        let customDB = customDir.appendingPathComponent("ktranslate.db")
+        let defaultDB = defaultDir.appendingPathComponent("ktranslate.db")
+        try Data("đang dùng".utf8).write(to: customDB)
+        // Bản sót lại sau một lần đổi chỗ mà bước đổi tên thất bại.
+        try Data("bản cũ còn sống".utf8).write(to: defaultDB)
+        let defaultWAL = URL(fileURLWithPath: defaultDB.path + "-wal")
+        try Data("wal".utf8).write(to: defaultWAL)
+
+        let backend = SpyBackend()
+        let reset = DataReset(backend: backend, defaults: defaults, fileManager: .default)
+
+        XCTAssertEqual(
+            reset.perform(.everything, dbPath: customDB, defaultDBPath: defaultDB, bundleID: suiteName),
+            .done)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: customDB.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: defaultDB.path),
+                       "db ở chỗ mặc định là chính chỗ store vừa được mở lại — để nó sống nghĩa là XOÁ SẠCH không xoá gì")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: defaultWAL.path),
+                       "companion đi theo db chính, không được để lại cạnh một db mới")
+        XCTAssertEqual(backend.openedPaths, [defaultDB])
+    }
 }
