@@ -305,6 +305,20 @@ impl Store {
             .optional()?
             .is_some())
     }
+
+    /// Xoá toàn bộ lịch sử tra. Không đụng `saved_words`: hai thứ có vòng đời
+    /// khác nhau — lịch sử phình theo ngày, từ đã lưu là thứ người dùng chủ
+    /// động tạo ra.
+    pub fn clear_history(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM history", [])?;
+        Ok(())
+    }
+
+    /// Xoá danh sách từ đã lưu. Không đụng `history`.
+    pub fn clear_saved_words(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM saved_words", [])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -558,5 +572,39 @@ mod tests {
 
         let second = Store::open(&path).expect("second open must not fail");
         assert!(second.is_saved("idempotent").unwrap());
+    }
+
+    #[test]
+    fn clearing_history_leaves_saved_words_untouched() {
+        let s = Store::open_in_memory().unwrap();
+        s.record_lookup(&lookup("alpha", Some("một"))).unwrap();
+        s.record_lookup(&lookup("beta", Some("hai"))).unwrap();
+        s.save_word("gamma").unwrap();
+
+        s.clear_history().unwrap();
+
+        assert_eq!(s.recent(10).unwrap().len(), 0);
+        // Con số gõ tay: một từ đã lưu, và nó phải sống sót.
+        assert_eq!(s.saved_words().unwrap().len(), 1);
+        assert!(s.is_saved("gamma").unwrap());
+    }
+
+    #[test]
+    fn clearing_saved_words_leaves_history_untouched() {
+        let s = Store::open_in_memory().unwrap();
+        s.record_lookup(&lookup("alpha", Some("một"))).unwrap();
+        s.save_word("gamma").unwrap();
+
+        s.clear_saved_words().unwrap();
+
+        assert_eq!(s.saved_words().unwrap().len(), 0);
+        assert_eq!(s.recent(10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn clearing_an_empty_table_is_not_an_error() {
+        let s = Store::open_in_memory().unwrap();
+        s.clear_history().unwrap();
+        s.clear_saved_words().unwrap();
     }
 }

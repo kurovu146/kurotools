@@ -46,6 +46,22 @@ pub extern "C" fn kt_recent_lookups(limit: u32) -> *mut c_char {
     })
 }
 
+#[no_mangle]
+pub extern "C" fn kt_clear_history() -> *mut c_char {
+    json_out(|| {
+        let ok = state::with_store(|s| s.clear_history().is_ok()).unwrap_or(false);
+        serde_json::json!({ "ok": ok })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn kt_clear_saved() -> *mut c_char {
+    json_out(|| {
+        let ok = state::with_store(|s| s.clear_saved_words().is_ok()).unwrap_or(false);
+        serde_json::json!({ "ok": ok })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,5 +101,34 @@ mod tests {
         // Db hỏng không được làm app chết — mảng rỗng, không phải null.
         let v = take(kt_recent_lookups(10));
         assert!(v.is_array(), "expected an array, got {v}");
+    }
+
+    #[test]
+    fn clear_history_reports_ok_and_spares_saved_words() {
+        let _guard = state::TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        state::reset_for_test();
+        let dir = tempfile::tempdir().unwrap();
+        let db = CString::new(dir.path().join("c.db").to_str().unwrap()).unwrap();
+        assert!(crate::kt_init(db.as_ptr()));
+
+        let word = CString::new("survivor").unwrap();
+        assert_eq!(take(kt_save_word(word.as_ptr())).get("ok").and_then(|b| b.as_bool()), Some(true));
+
+        assert_eq!(take(kt_clear_history()).get("ok").and_then(|b| b.as_bool()), Some(true));
+        assert_eq!(take(kt_is_saved(word.as_ptr())).get("saved").and_then(|b| b.as_bool()), Some(true));
+    }
+
+    #[test]
+    fn clear_saved_reports_ok() {
+        let _guard = state::TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        state::reset_for_test();
+        let dir = tempfile::tempdir().unwrap();
+        let db = CString::new(dir.path().join("c2.db").to_str().unwrap()).unwrap();
+        assert!(crate::kt_init(db.as_ptr()));
+
+        let word = CString::new("gone").unwrap();
+        take(kt_save_word(word.as_ptr()));
+        assert_eq!(take(kt_clear_saved()).get("ok").and_then(|b| b.as_bool()), Some(true));
+        assert_eq!(take(kt_is_saved(word.as_ptr())).get("saved").and_then(|b| b.as_bool()), Some(false));
     }
 }
