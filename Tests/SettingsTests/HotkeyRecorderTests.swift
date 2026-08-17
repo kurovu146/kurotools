@@ -32,10 +32,14 @@ final class HotkeyRecorderTests: XCTestCase {
 }
 
 /// `RecorderField.keyDown(with:)` không cần cửa sổ thật để chạy — event
-/// được dựng tay qua `NSEvent.keyEvent`, không đi qua responder chain. Điều
-/// KHÔNG kiểm được ở đây: `startRecording()` gọi `window?.makeFirstResponder`,
-/// và việc AppKit thật sự định tuyến phím tới nút này khi nó là first
-/// responder — cả hai cần một `NSWindow` sống trong một app đang chạy.
+/// được dựng tay qua `NSEvent.keyEvent`, không đi qua responder chain.
+/// `startRecording()` cũng test được mà không cần cửa sổ: `window` là `nil`
+/// trong test nên `window?.makeFirstResponder(self)` là optional chaining
+/// im lặng bỏ qua, còn phần còn lại (gán `isRecording`, đổi `title`) chạy
+/// bình thường. Điều KHÔNG kiểm được ở đây: nhánh `makeFirstResponder` thật
+/// sự chạy (cần `window` khác `nil`), và việc AppKit thật sự định tuyến phím
+/// tới nút này khi nó là first responder — cả hai cần một `NSWindow` sống
+/// trong một app đang chạy.
 final class RecorderFieldTests: XCTestCase {
     private func syntheticKeyDown(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> NSEvent {
         NSEvent.keyEvent(
@@ -79,6 +83,16 @@ final class RecorderFieldTests: XCTestCase {
 
         XCTAssertTrue(field.isRecording)
         XCTAssertNil(recorded)
+    }
+
+    func testClickingTheButtonStartsRecordingAndShowsThePrompt() {
+        let field = RecorderField()
+        XCTAssertNil(field.window)   // đường target-action không cần cửa sổ để chạy
+
+        _ = field.target?.perform(field.action, with: field)
+
+        XCTAssertTrue(field.isRecording)
+        XCTAssertEqual(field.title, "Bấm tổ hợp phím…")
     }
 
     func testValidComboEndsRecordingAndReportsIt() {
