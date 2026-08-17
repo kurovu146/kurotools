@@ -48,12 +48,11 @@ final class DataResetTests: XCTestCase {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         dbPath = tmp.appendingPathComponent("ktranslate.db")
         try Data("payload".utf8).write(to: dbPath)
-        suiteName = "kurotools.reset.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        (defaults, suiteName) = PreferencesSandbox.make("reset")
     }
 
     override func tearDownWithError() throws {
-        defaults.removePersistentDomain(forName: suiteName)
+        PreferencesSandbox.destroy(suiteName)
         try? FileManager.default.removeItem(at: tmp)
     }
 
