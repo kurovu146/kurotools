@@ -12,6 +12,7 @@ public final class TranslateController {
     private let model: AppModel
     private var panel: PopupPanel?
     private var hotkey: HotkeyMonitor?
+    public private(set) var currentHotkey: HotkeyCombo = .default
     /// Từ `NSEvent.addLocalMonitorForEvents` — kiểu trả về là `Any?` theo
     /// chữ ký AppKit, không phải một type cụ thể.
     private var escapeMonitor: Any?
@@ -73,9 +74,43 @@ public final class TranslateController {
 
         installEscapeMonitor()
 
-        let monitor = HotkeyMonitor { [weak self] in self?.toggle() }
+        let combo = HotkeyPreference.load()
+        currentHotkey = combo
+        let monitor = HotkeyMonitor(keyCode: combo.keyCode, modifiers: combo.modifiers) {
+            [weak self] in self?.toggle()
+        }
         monitor.register()
         hotkey = monitor
+    }
+
+    /// Đổi tổ hợp phím và đăng ký lại NGAY, không đợi khởi động lại app.
+    ///
+    /// Thất bại (gần như luôn là app khác đã chiếm tổ hợp) → quay về tổ hợp
+    /// cũ và đăng ký lại nó. Người dùng bấm nhầm một tổ hợp bận không được
+    /// phải trả giá bằng việc mất hotkey.
+    @discardableResult
+    public func applyHotkey(_ combo: HotkeyCombo) -> Bool {
+        guard combo.isValid else { return false }
+        let previous = currentHotkey
+        hotkey?.unregister()
+
+        let monitor = HotkeyMonitor(keyCode: combo.keyCode, modifiers: combo.modifiers) {
+            [weak self] in self?.toggle()
+        }
+        if monitor.register() {
+            hotkey = monitor
+            currentHotkey = combo
+            HotkeyPreference.save(combo)
+            return true
+        }
+
+        let restored = HotkeyMonitor(keyCode: previous.keyCode, modifiers: previous.modifiers) {
+            [weak self] in self?.toggle()
+        }
+        restored.register()
+        hotkey = restored
+        currentHotkey = previous
+        return false
     }
 
     /// Đường hotkey: đóng nếu đang mở, mở nếu đang đóng.
