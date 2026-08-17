@@ -5,6 +5,12 @@ import Translate
 /// `TranslateBackend` để chỗ này không phải biết gì về tra cứu, và để test
 /// dựng được một store giả rẻ tiền.
 public protocol StoreMaintaining: AnyObject {
+    /// Đóng store đang mở. Giao kèo: `false` PHẢI nghĩa là "chưa đóng được
+    /// gì cả, mọi thứ còn nguyên như trước" — không phải "đóng dở". Pre-flight
+    /// guard trong `relocate` dựa thẳng vào điều này để return luôn mà KHÔNG
+    /// thử mở lại khi thấy `false`. Một implementation lỡ đóng rồi mới báo
+    /// lỗi sẽ khiến `relocate` nghĩ store vẫn đang mở trong khi thực ra không
+    /// — rơi đúng vào cái hố `.failedAndStoreClosed` được sinh ra để bắt.
     func closeStore() -> Bool
     func openStore(at dbPath: URL) -> Bool
     /// Đọc thật một lần. `Connection::open` tạo file rỗng cho đường dẫn sai mà
@@ -24,8 +30,12 @@ public enum RelocationOutcome: Equatable {
 
 /// Đổi chỗ db theo lối copy-verify-swap. Không bao giờ `move`.
 ///
-/// Bất biến: khi hàm này trả về — dù nhánh nào — luôn có một store mở được
-/// tại đường dẫn đang có hiệu lực.
+/// Bất biến: khi hàm này trả về, TRỪ nhánh `.failedAndStoreClosed`, luôn có
+/// một store mở được tại đường dẫn đang có hiệu lực. Gặp
+/// `.failedAndStoreClosed` nghĩa là rollback không mở lại được store cũ —
+/// không còn store nào đang mở ở đâu cả; caller PHẢI báo người dùng khởi
+/// động lại app, vì không có cách nào tự phục hồi từ đây (không biết được
+/// trạng thái thật của driver Rust nữa).
 public enum DataRelocation {
     // Tên file trùng với `DatabaseMigration` không phải trùng hợp — cùng một
     // db. Tham chiếu thẳng, đừng khai báo lại một hằng số thứ hai có thể trôi

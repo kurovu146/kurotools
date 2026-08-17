@@ -205,6 +205,25 @@ final class DataRelocationTests: XCTestCase {
         XCTAssertEqual(store.calls, ["close"])
     }
 
+    func testAMissingSourceDatabaseIsRefusedWithoutTouchingTheStore() throws {
+        try FileManager.default.removeItem(at: currentDB)
+        let target = try newDir()
+        let store = FakeStore()
+
+        let outcome = DataRelocation.relocate(
+            currentDB: currentDB, toDirectory: target, store: store,
+            fileManager: .default, verdict: { _ in .ok }, now: Date())
+
+        // Không chỉ `case .failed`: nếu guard này bị xoá, `copyItem` sẽ throw,
+        // rollback mở lại `currentDB` — và Rust `Store::open` TẠO MỘT DB RỖNG
+        // MỚI ở đúng chỗ cũ (create_dir_all + SQLITE_OPEN_CREATE mặc định) rồi
+        // báo thành công. Người dùng thấy "copy thất bại" trong khi chỗ cũ đã
+        // âm thầm bị thay bằng db rỗng — và `DatabaseMigration` không bao giờ
+        // migrate lại được nữa (nó chỉ chạy khi CHƯA có db ở đó).
+        XCTAssertEqual(outcome, .failed("Không tìm thấy db ở chỗ hiện tại."))
+        XCTAssertEqual(store.calls, [], "thiếu db nguồn là điều biết trước — không được đụng tới store")
+    }
+
     func testMovingToTheSameDirectoryIsRefused() throws {
         let store = FakeStore()
         let outcome = DataRelocation.relocate(
