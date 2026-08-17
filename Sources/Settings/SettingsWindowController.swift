@@ -39,8 +39,11 @@ struct SettingsRootView: View {
             .padding(EdgeInsets(top: 8, leading: 14, bottom: 10, trailing: 14))
         }
         .frame(minWidth: 520, minHeight: 420)
-        // Người dùng có thể đã tắt login item trong System Settings, hoặc vừa
-        // duyệt nó, giữa hai lần mở cửa sổ này.
+        // Chỉ lo LẦN ĐẦU. Không đủ cho những lần mở sau: `close()` order-out
+        // cửa sổ nhưng KHÔNG tháo content view, nên root view không bao giờ
+        // "biến mất" với SwiftUI và `.onAppear` không bao giờ chạy lần hai
+        // (đo được: `appears=1` sau ba vòng mở/đóng).
+        // `SettingsWindowController.show()` mới là chỗ nạp lại mỗi lần.
         .onAppear { model.refreshFromSystem() }
     }
 }
@@ -73,6 +76,11 @@ public final class SettingsWindowController {
     public static func show(model: SettingsModel) {
         let controller = shared ?? SettingsWindowController(model: model)
         shared = controller
+        // MỖI lần mở, không chỉ lần đầu: giữa hai lần mở, người dùng có thể đã
+        // tắt login item trong System Settings, duyệt nó, đổi cặp ngôn ngữ từ
+        // popup tra từ, hoặc một app khác đã giành mất phím tắt. `.onAppear`
+        // của root view không bắt được những lần sau (xem chú thích ở đó).
+        model.refreshFromSystem()
         // App là `LSUIElement` (không có Dock icon, không bao giờ tự thành app
         // active): thiếu `activate` thì cửa sổ hiện ra SAU LƯNG app đang dùng
         // và không nhận được bàn phím.

@@ -18,7 +18,7 @@ public struct VitalsTab: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Stepper(value: binding(\.thresholdC), in: 80...105, step: 1) {
-                    Text("Ngưỡng quá nhiệt: \(Int(model.vitalsSettings().thresholdC))°C")
+                    Text("Ngưỡng quá nhiệt: \(Int(model.vitalsSettings.thresholdC))°C")
                         .font(.system(size: 13))
                 }
                 .frame(maxWidth: 320, alignment: .leading)
@@ -55,7 +55,7 @@ public struct VitalsTab: View {
     }
 
     private var refreshLabel: String {
-        String(format: "%.1f giây", model.vitalsSettings().refreshSeconds)
+        String(format: "%.1f giây", model.vitalsSettings.refreshSeconds)
     }
 
     /// Đọc từ controller, ghi qua `applyVitals`. Không có bản sao `@State` nào
@@ -65,9 +65,9 @@ public struct VitalsTab: View {
         _ keyPath: WritableKeyPath<Vitals.Settings, Value>
     ) -> Binding<Value> {
         Binding(
-            get: { model.vitalsSettings()[keyPath: keyPath] },
+            get: { model.vitalsSettings[keyPath: keyPath] },
             set: { newValue in
-                var next = model.vitalsSettings()
+                var next = model.vitalsSettings
                 next[keyPath: keyPath] = newValue
                 model.applyVitals(next)
             })

@@ -52,12 +52,30 @@ public final class BackendStoreMaintenance: StoreMaintaining {
     }
 }
 
+/// Đúng những gì Settings cần từ `TranslateController`. `TranslateController`
+/// là `final class` bọc thẳng Carbon + `NSPanel`, không có chỗ nhét test double
+/// nào khác — mà thứ tự "đóng popup TRƯỚC khi đóng store" (spec §5 bước 2) chỉ
+/// quan sát được nếu có thể ghi lại lời gọi.
+///
+/// Test hotkey vẫn dùng `TranslateController` THẬT (va chạm Carbon thật là
+/// phép đo tốt hơn hẳn một cờ Bool); protocol này chỉ mở thêm đường cho những
+/// test cần quan sát thứ tự.
+@MainActor
+public protocol TranslateControlling: AnyObject {
+    var currentHotkey: HotkeyCombo { get }
+    var isHotkeyRegistered: Bool { get }
+    @discardableResult func applyHotkey(_ combo: HotkeyCombo) -> Bool
+    func hidePopup()
+}
+
+extension TranslateController: TranslateControlling {}
+
 /// Trạng thái của cửa sổ Settings và mọi thao tác nó gây ra. Ba tab chỉ đọc và
 /// gọi vào đây; không tab nào tự chạm `UserDefaults`, `DataReset` hay
 /// `DataRelocation`.
 @MainActor
 public final class SettingsModel: ObservableObject {
-    private let translate: TranslateController
+    private let translate: TranslateControlling
     private let vitals: VitalsController
     private let backend: TranslateBackend
     private let loginItem: LoginItemControlling
@@ -92,7 +110,25 @@ public final class SettingsModel: ObservableObject {
     @Published public private(set) var isRelocating = false
     /// App đang KHÔNG có store nào mở và không tự phục hồi được — chỉ đường
     /// `.failedAndStoreClosed` và `.everything` mở lại hỏng mới bật cờ này.
+    /// Được XOÁ ở mọi đường kết thúc với một store chắc chắn đang mở: một
+    /// banner "hãy khởi động lại" nằm lì sau khi app đã tự phục hồi là một lời
+    /// nói dối theo chiều ngược lại.
     @Published public private(set) var needsRestart = false
+
+    /// Bản sao cấu hình Vitals, `@Published` một cách CÓ CHỦ Ý.
+    /// `VitalsController.currentSettings` không phát tín hiệu gì, nên nếu tab
+    /// đọc thẳng từ đó thì nó chỉ vẽ lại nhờ một `status` tình cờ được gán —
+    /// xoá đúng dòng gán ấy là mọi control trong tab đứng hình mà cả bộ test
+    /// vẫn xanh. Luôn được gán bằng giá trị ĐỌC LẠI từ controller, không phải
+    /// giá trị vừa truyền vào, nên không có bản sao nào trôi đi được.
+    @Published public private(set) var vitalsSettings: Vitals.Settings
+    /// Ba thứ dưới đây đọc qua FFI nên KHÔNG đọc trong `body`. Nạp lại trong
+    /// `refreshFromSystem()` (mỗi lần cửa sổ hiện) thay vì một lần trong
+    /// `onAppear` của tab: db có thể vừa bị đổi chỗ hoặc xoá sạch giữa hai lần
+    /// mở cửa sổ.
+    @Published public private(set) var languages: [String] = []
+    @Published public private(set) var recentLanguages: [String] = []
+    @Published public private(set) var langConfig: LangConfig?
 
     public var dbDirectory: URL { dbPath.deletingLastPathComponent() }
 
@@ -102,7 +138,7 @@ public final class SettingsModel: ObservableObject {
     /// persistent domain, và một test lỡ chạy vào domain thật sẽ xoá sạch
     /// preference của máy.
     public init(
-        translate: TranslateController,
+        translate: TranslateControlling,
         vitals: VitalsController,
         backend: TranslateBackend,
         loginItem: LoginItemControlling,
@@ -126,16 +162,26 @@ public final class SettingsModel: ObservableObject {
         hotkeyIsRegistered = translate.isHotkeyRegistered
         loginItemState = loginItem.state
         runAtLogin = loginItem.state != .off
+        vitalsSettings = vitals.currentSettings
     }
 
-    /// Đọc lại những thứ hệ thống có thể đã đổi sau lưng app: login item bị
-    /// tắt trong System Settings, hay quyền duyệt vừa được cấp. Gọi mỗi lần
-    /// cửa sổ hiện ra — nhớ trạng thái cũ là cách sinh ra một công tắc "bật"
-    /// trong khi launchd không biết gì.
+    /// Đọc lại mọi thứ có thể đã đổi sau lưng cửa sổ này: login item bị tắt
+    /// trong System Settings, quyền duyệt vừa được cấp, hotkey bị app khác
+    /// giành mất, hay cặp ngôn ngữ đổi từ chính popup tra từ.
+    ///
+    /// PHẢI được gọi từ `SettingsWindowController.show()`, không phải chỉ
+    /// `.onAppear`: `close()` chỉ order-out cửa sổ chứ không tháo content
+    /// view, nên SwiftUI không bao giờ thấy root view biến mất và
+    /// `.onAppear` chỉ chạy đúng MỘT lần cho cả vòng đời app — đo được:
+    /// `appears=1` sau ba vòng mở/đóng.
     public func refreshFromSystem() {
         readLoginItemState()
         hotkey = translate.currentHotkey
         hotkeyIsRegistered = translate.isHotkeyRegistered
+        vitalsSettings = vitals.currentSettings
+        languages = backend.languages()
+        recentLanguages = backend.recentLanguages()
+        langConfig = backend.langConfig()
     }
 
     // MARK: - Phím tắt
@@ -207,6 +253,11 @@ public final class SettingsModel: ObservableObject {
         isRelocating = true
         defer { isRelocating = false }
 
+        // Spec §5 bước 2: đóng popup TRƯỚC khi store bị đóng. `relocate` gọi
+        // `closeStore()` ngay sau nhóm pre-flight, và popup còn hiện là nơi
+        // duy nhất có thể sinh một `lookup` mới ngay lúc đó.
+        translate.hidePopup()
+
         switch DataRelocation.relocate(
             currentDB: dbPath, toDirectory: directory, store: maintenance, verdict: verdict
         ) {
@@ -216,6 +267,7 @@ public final class SettingsModel: ObservableObject {
             // có db sẽ âm thầm rơi về mặc định (ràng buộc mang sang từ Task 4).
             DatabaseLocation.setOverride(to.deletingLastPathComponent(), defaults: defaults)
             dbPath = to
+            storeIsOpen()
             status = "Đã chuyển. Bản cũ còn ở \(oldRenamedTo.path) — xoá khi anh yên tâm."
         case .rejected(.notLocalVolume):
             status = "Chỉ đặt được trên ổ local: SQLite hỏng trên ổ mạng."
@@ -227,6 +279,10 @@ public final class SettingsModel: ObservableObject {
             // case mới thêm về sau.
             status = nil
         case .failed(let reason):
+            // `.failed` = rollback đã mở lại được db cũ (đúng giao kèo của
+            // `DataRelocation`), nên đây cũng là một đường kết thúc với store
+            // đang mở — kể cả khi trước đó có một lần hỏng nặng.
+            storeIsOpen()
             status = "Không chuyển được: \(reason) Db vẫn ở chỗ cũ."
         case .failedAndStoreClosed(let reason):
             // KHÁC HẲN `.failed`: rollback không mở lại được db cũ, hiện không
@@ -241,13 +297,19 @@ public final class SettingsModel: ObservableObject {
     // MARK: - Xoá dữ liệu
 
     public func reset(_ scope: ResetScope) {
+        // Spec §5 bước 2 (áp cho cả `.everything`, nhánh duy nhất gọi
+        // `kt_close`): popup phải đóng trước khi store bị đóng.
+        if scope == .everything { translate.hidePopup() }
+
         let succeeded = DataReset(backend: backend, defaults: defaults)
             .perform(scope, dbPath: dbPath, defaultDBPath: defaultDBPath, bundleID: bundleID)
 
         switch scope {
         case .history:
+            if succeeded { storeIsOpen() }
             status = succeeded ? "Đã xoá lịch sử tra." : "Không xoá được lịch sử — db chưa đổi gì."
         case .savedWords:
+            if succeeded { storeIsOpen() }
             status = succeeded ? "Đã xoá từ đã lưu." : "Không xoá được từ đã lưu — db chưa đổi gì."
         case .everything:
             guard succeeded else {
@@ -263,13 +325,40 @@ public final class SettingsModel: ObservableObject {
             // dưới thì UI chỉ vào thư mục tuỳ chỉnh cũ trong khi db thật đã
             // nằm ở chỗ mặc định.
             dbPath = defaultDBPath
-            status = "Đã xoá sạch. Db mới nằm ở \(dbDirectory.path). Cấu hình khác trở lại mặc định ở lần khởi động sau."
+            storeIsOpen()
+
+            // Spec §6 mức 3: đưa hotkey về ⌘⇧D và **đăng ký lại ngay**.
+            // `removePersistentDomain` chỉ xoá preference ĐÃ LƯU; tổ hợp cũ
+            // vẫn đang sống với hệ thống tới khi thoát app, và tới lần khởi
+            // động sau nó âm thầm thành ⇧⌘D — có thể đang bị app khác giữ,
+            // không ai báo cho người dùng. `applyHotkey` tự lo cả gỡ đăng ký,
+            // đăng ký lại lẫn ghi preference.
+            translate.applyHotkey(.default)
+            hotkey = translate.currentHotkey
+            hotkeyIsRegistered = translate.isHotkeyRegistered
+
+            // 🔑 `removePersistentDomain` dọn sạch kho preference, nhưng
+            // `VitalsController` giữ MỘT BẢN SAO nạp từ lúc khởi tạo — lần
+            // `apply()` kế tiếp (người dùng nhích bất kỳ control nào trong tab
+            // Vitals) sẽ ghi lại đủ SÁU khoá cũ xuống đĩa. Không có dòng dưới
+            // đây thì "trở lại như vừa cài" là một câu sai: kho bị đầu độc
+            // lại, không chỉ là một bản sao cũ trong bộ nhớ.
+            applyVitals(Vitals.Settings())
+
+            status = hotkeyIsRegistered
+                ? "Đã xoá sạch. Db mới nằm ở \(dbDirectory.path); phím tắt trở lại \(hotkey.displayString)."
+                : "Đã xoá sạch. Db mới nằm ở \(dbDirectory.path); \(hotkey.displayString) đang bị app khác giữ nên phím tắt chưa hoạt động."
         }
     }
 
-    // MARK: - Vitals
+    /// Đánh dấu "có một store chắc chắn đang mở". Gọi ở MỌI đường kết thúc như
+    /// vậy — banner đỏ nằm lì sau khi app đã tự phục hồi bảo người dùng thoát
+    /// một app đang chạy tốt.
+    private func storeIsOpen() {
+        needsRestart = false
+    }
 
-    public func vitalsSettings() -> Vitals.Settings { vitals.currentSettings }
+    // MARK: - Vitals
 
     /// Một đường DUY NHẤT vào preference của Vitals: `VitalsController.apply`
     /// còn phải đẩy ngưỡng xuống `FanController` và đặt lại nhịp timer, nên
@@ -277,23 +366,25 @@ public final class SettingsModel: ObservableObject {
     /// thống chạy theo giá trị cũ.
     public func applyVitals(_ settings: Vitals.Settings) {
         vitals.apply(settings)
-        // `Vitals.Settings` sống trong controller chứ không phải một
-        // `@Published` ở đây; chính phép gán `status` này là thứ phát
-        // `objectWillChange` để tab đọc lại giá trị vừa lưu.
+        // Đọc LẠI từ controller, không gán `settings`: controller mới là nơi
+        // giữ sự thật, và một bản sao gán thẳng sẽ trôi đi nếu `apply` từ chối
+        // hay chuẩn hoá gì đó.
+        vitalsSettings = vitals.currentSettings
         status = "Đã lưu cài đặt theo dõi."
     }
 
     // MARK: - Ngôn ngữ (tab Dịch đọc/ghi qua backend)
 
-    public func languages() -> [String] { backend.languages() }
-    public func recentLanguages() -> [String] { backend.recentLanguages() }
-    public func langConfig() -> LangConfig? { backend.langConfig() }
-
     /// Trả về thứ backend THỰC SỰ lưu, không phải thứ vừa chọn: `LangConfig::new`
     /// phía Rust sửa va chạm (đích trùng nguồn, v.v.), nên hai giá trị có thể
     /// khác nhau và tab phải hiển thị lại giá trị trả về.
+    @discardableResult
     public func setLangConfig(source: String?, target: String, other: String) -> LangConfig? {
         let saved = backend.setLangConfig(source: source, target: target, other: other)
+        // Lưu hỏng: đọc lại thứ backend đang giữ để picker không đứng ở một
+        // giá trị chưa bao giờ được ghi.
+        langConfig = saved ?? backend.langConfig()
+        recentLanguages = backend.recentLanguages()
         status = saved == nil ? "Không lưu được lựa chọn ngôn ngữ." : nil
         return saved
     }
@@ -326,17 +417,22 @@ private final class InertBackend: TranslateBackend {
 }
 
 extension SettingsModel {
-    /// Dựng model cho test mà không đụng gì THẬT: db ở thư mục tạm,
-    /// `UserDefaults` là một suite dùng một lần, backend trơ.
-    /// `TranslateController()` chưa gọi `start()` nên không mở store lẫn đăng
-    /// ký hotkey nào.
+    /// Dựng model cho test mà không đụng gì THẬT: db ở thư mục tạm, backend
+    /// trơ, `TranslateController()` chưa gọi `start()` nên không mở store lẫn
+    /// đăng ký hotkey nào.
+    ///
+    /// `defaults` là tham số BẮT BUỘC: bản trước tự mint một suite
+    /// `kurotools.settings.forTesting.<UUID>` mà không ai dọn, và mỗi lần chạy
+    /// bộ test lại để lại một file plist trong `~/Library/Preferences` của máy
+    /// thật. Test phải truyền suite của chính nó — cái nó đã
+    /// `removePersistentDomain` trong `tearDown`.
     static func forTesting(
         loginItem: LoginItemControlling,
-        suiteName: String = "kurotools.settings.forTesting.\(UUID().uuidString)"
+        defaults: UserDefaults,
+        bundleID: String
     ) -> SettingsModel {
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString)
-        let defaults = UserDefaults(suiteName: suiteName)!
         return SettingsModel(
             translate: TranslateController(),
             vitals: VitalsController(defaults: defaults),
@@ -345,7 +441,7 @@ extension SettingsModel {
             dbPath: tmp.appendingPathComponent(DatabaseMigration.databaseName),
             defaultDBPath: tmp.appendingPathComponent(DatabaseMigration.databaseName),
             defaults: defaults,
-            bundleID: suiteName)
+            bundleID: bundleID)
     }
 }
 #endif

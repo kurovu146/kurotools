@@ -205,15 +205,20 @@ public final class TranslateController {
         }
     }
 
-    /// Điểm gọi DUY NHẤT đóng popup — cả từ `toggle()` lẫn từ tier 2 của
-    /// `installEscapeMonitor`, để không nơi nào quên bước dọn dẹp.
+    /// Điểm gọi DUY NHẤT đóng popup — cả từ `toggle()`, tier 2 của
+    /// `installEscapeMonitor`, lẫn Settings, để không nơi nào quên bước dọn dẹp.
+    ///
+    /// `public` vì spec §5 bước 2 bắt buộc đóng popup TRƯỚC `kt_close()`: popup
+    /// đang hiện là cửa sổ duy nhất có thể phát sinh một `lookup` mới ngay lúc
+    /// Settings sắp đóng store, và người dùng nhìn vào một panel còn hiện
+    /// không có cách nào biết những gì gõ tiếp sẽ không được lưu.
     ///
     /// `model.dismissed()` đứng TRƯỚC `panel.hide()`: xem doc-comment của nó
     /// (AppState.swift, commit 8e8e6a7) — đường toggle-đóng/Escape-tier-2
     /// không đi qua `handle()` lẫn `RootView`, nên đây là nơi DUY NHẤT dọn
     /// Timer poll quyền Accessibility nếu popup đang đóng lại đúng lúc cổng
     /// quyền hiện. An toàn gọi vô điều kiện — no-op ở mọi trạng thái khác.
-    private func hidePopup() {
+    public func hidePopup() {
         model.dismissed()
         panel?.hide()
     }

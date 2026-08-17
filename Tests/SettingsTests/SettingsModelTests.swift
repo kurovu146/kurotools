@@ -32,6 +32,7 @@ private final class StubBackend: TranslateBackend {
     var openStoreSucceeds = true
     var openedPaths: [URL] = []
     var config: LangConfig?
+    var journal: CallJournal?
 
     func capture() -> CaptureOutcome { .empty }
     func lookup(_ text: String, completion: @escaping (Lookup) -> Void) {}
@@ -48,9 +49,14 @@ private final class StubBackend: TranslateBackend {
 
     func clearHistory() -> Bool { calls.append("clearHistory"); return clearHistorySucceeds }
     func clearSavedWords() -> Bool { calls.append("clearSaved"); return clearSavedWordsSucceeds }
-    func closeStore() -> Bool { calls.append("close"); return true }
+    func closeStore() -> Bool {
+        calls.append("close")
+        journal?.entries.append("close")
+        return true
+    }
     func openStore(at dbPath: URL) -> Bool {
         calls.append("open")
+        journal?.entries.append("open")
         openedPaths.append(dbPath)
         return openStoreSucceeds
     }
@@ -66,15 +72,50 @@ private final class FakeStore: StoreMaintaining {
     var readable = true
     var openSucceeds: (URL) -> Bool = { _ in true }
     var onOpen: (() -> Void)?
+    /// Nhật ký DÙNG CHUNG với `SpyTranslate` — thứ tự giữa hai đối tượng khác
+    /// nhau (đóng popup rồi mới đóng store) không đo được từ hai mảng rời.
+    var journal: CallJournal?
 
-    func closeStore() -> Bool { calls.append("close"); return closeSucceeds }
+    func closeStore() -> Bool { record("close"); return closeSucceeds }
     func openStore(at dbPath: URL) -> Bool {
-        calls.append("open")
+        record("open")
         openPaths.append(dbPath)
         onOpen?()
         return openSucceeds(dbPath)
     }
-    func canRead() -> Bool { calls.append("read"); return readable }
+    func canRead() -> Bool { record("read"); return readable }
+
+    private func record(_ entry: String) {
+        calls.append(entry)
+        journal?.entries.append(entry)
+    }
+}
+
+private final class CallJournal {
+    var entries: [String] = []
+}
+
+/// `TranslateController` giả — chỉ để quan sát THỨ TỰ (`hidePopup` trước khi
+/// store bị đóng) và việc `applyHotkey` có được gọi hay không. Test hotkey vẫn
+/// dùng controller THẬT.
+@MainActor
+private final class SpyTranslate: TranslateControlling {
+    var currentHotkey: HotkeyCombo = HotkeyCombo(
+        keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(controlKey | optionKey))
+    var isHotkeyRegistered = true
+    var applied: [HotkeyCombo] = []
+    var applyResult = true
+    var journal: CallJournal?
+
+    func applyHotkey(_ combo: HotkeyCombo) -> Bool {
+        applied.append(combo)
+        journal?.entries.append("applyHotkey")
+        if applyResult { currentHotkey = combo }
+        isHotkeyRegistered = applyResult
+        return applyResult
+    }
+
+    func hidePopup() { journal?.entries.append("hidePopup") }
 }
 
 @MainActor
@@ -92,12 +133,11 @@ final class SettingsModelTests: XCTestCase {
         dbPath = currentDir.appendingPathComponent("ktranslate.db")
         try Data("payload".utf8).write(to: dbPath)
         defaultDBPath = tmp.appendingPathComponent("default").appendingPathComponent("ktranslate.db")
-        suiteName = "kurotools.settings.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        (defaults, suiteName) = PreferencesSandbox.make("settings")
     }
 
     override func tearDownWithError() throws {
-        defaults.removePersistentDomain(forName: suiteName)
+        PreferencesSandbox.destroy(suiteName)
         try? FileManager.default.removeItem(at: tmp)
     }
 
@@ -108,11 +148,12 @@ final class SettingsModelTests: XCTestCase {
         loginItem: LoginItemControlling = StubLoginItem(),
         backend: TranslateBackend = StubBackend(),
         maintenance: StoreMaintaining? = nil,
-        translate: TranslateController? = nil
+        translate: TranslateControlling? = nil,
+        vitals: VitalsController? = nil
     ) -> SettingsModel {
         SettingsModel(
             translate: translate ?? TranslateController(),
-            vitals: VitalsController(defaults: defaults),
+            vitals: vitals ?? VitalsController(defaults: defaults),
             backend: backend,
             loginItem: loginItem,
             maintenance: maintenance,
@@ -127,7 +168,7 @@ final class SettingsModelTests: XCTestCase {
     func testAFailedLoginItemToggleReportsAndSnapsBack() throws {
         let login = StubLoginItem()
         login.shouldThrow = true
-        let model = SettingsModel.forTesting(loginItem: login)
+        let model = SettingsModel.forTesting(loginItem: login, defaults: defaults, bundleID: suiteName)
 
         model.setRunAtLogin(true)
 
@@ -137,7 +178,7 @@ final class SettingsModelTests: XCTestCase {
 
     func testASuccessfulLoginItemToggleSticks() {
         let login = StubLoginItem()
-        let model = SettingsModel.forTesting(loginItem: login)
+        let model = SettingsModel.forTesting(loginItem: login, defaults: defaults, bundleID: suiteName)
         model.setRunAtLogin(true)
         XCTAssertTrue(model.runAtLogin)
         XCTAssertEqual(login.state, .on)
@@ -150,7 +191,7 @@ final class SettingsModelTests: XCTestCase {
     func testRequiresApprovalIsItsOwnStateNotOff() {
         let login = StubLoginItem()
         login.stateAfterEnabling = .requiresApproval
-        let model = SettingsModel.forTesting(loginItem: login)
+        let model = SettingsModel.forTesting(loginItem: login, defaults: defaults, bundleID: suiteName)
 
         model.setRunAtLogin(true)
 
@@ -167,7 +208,7 @@ final class SettingsModelTests: XCTestCase {
     /// nhớ trong bộ nhớ.
     func testReopeningTheWindowRereadsTheSystemState() {
         let login = StubLoginItem()
-        let model = SettingsModel.forTesting(loginItem: login)
+        let model = SettingsModel.forTesting(loginItem: login, defaults: defaults, bundleID: suiteName)
         model.setRunAtLogin(true)
         XCTAssertTrue(model.runAtLogin)
 
@@ -413,14 +454,156 @@ final class SettingsModelTests: XCTestCase {
             loginItem: StubLoginItem(), maintenance: FakeStore(), dbPath: dbPath,
             defaultDBPath: defaultDBPath, defaults: defaults, bundleID: suiteName)
 
-        var next = model.vitalsSettings()
+        var next = model.vitalsSettings
         next.thresholdC = 88
         next.showRAM = false
         model.applyVitals(next)
 
         XCTAssertEqual(vitals.currentSettings.thresholdC, 88)
         XCTAssertFalse(vitals.currentSettings.showRAM)
-        XCTAssertEqual(model.vitalsSettings().thresholdC, 88)
+        XCTAssertEqual(model.vitalsSettings.thresholdC, 88,
+                       "tab đọc bản `@Published` này — không cập nhật nó thì mọi control trong tab đứng hình")
         vitals.timer?.invalidate()
+    }
+
+    // MARK: - Fix round 1
+
+    /// 🔑 Spec §6 mức 3 liệt kê NĂM việc; trước bản vá code chỉ làm bốn. Không
+    /// đưa hotkey về mặc định + đăng ký lại ngay thì cửa sổ hiện tổ hợp cũ
+    /// trong khi preference đã bị xoá, và tới lần khởi động sau nó âm thầm
+    /// thành ⇧⌘D — có thể đang bị app khác giữ, không ai báo gì.
+    func testAFullResetReturnsTheHotkeyToTheDefaultAndRegistersItAgain() {
+        let spy = SpyTranslate()
+        let model = makeModel(translate: spy)
+        XCTAssertNotEqual(model.hotkey, .default, "setup: đang dùng một tổ hợp tuỳ chỉnh")
+
+        model.reset(.everything)
+
+        XCTAssertEqual(spy.applied, [.default],
+                       "phải ĐĂNG KÝ LẠI ngay, không chỉ xoá preference rồi đợi lần khởi động sau")
+        XCTAssertEqual(model.hotkey, .default)
+        XCTAssertTrue(model.hotkeyIsRegistered)
+    }
+
+    /// Cùng đường trên, nhánh tổ hợp mặc định đang bị app khác giữ: người dùng
+    /// phải được báo, không được để UI nói dối là phím tắt đang chạy.
+    func testAFullResetSaysSoWhenTheDefaultHotkeyIsAlreadyTaken() {
+        let spy = SpyTranslate()
+        spy.applyResult = false
+        let model = makeModel(translate: spy)
+
+        model.reset(.everything)
+
+        XCTAssertFalse(model.hotkeyIsRegistered)
+        XCTAssertTrue(model.status?.contains("đang bị app khác giữ") == true,
+                      "thấy: \(model.status ?? "nil")")
+    }
+
+    /// 🔑 `removePersistentDomain` dọn kho preference, nhưng `VitalsController`
+    /// giữ một bản sao nạp từ lúc khởi tạo — lần `apply()` kế tiếp ghi lại đủ
+    /// SÁU khoá cũ xuống đĩa. Người dùng xoá sạch, nhích một control, và ngưỡng
+    /// cũ sống lại: kho bị đầu độc lại chứ không chỉ là bản sao cũ trong bộ nhớ.
+    func testWipedVitalsPreferencesCannotBeResurrectedByALaterSave() {
+        let vitals = VitalsController(defaults: defaults)
+        let model = makeModel(vitals: vitals)
+        var custom = model.vitalsSettings
+        custom.thresholdC = 88
+        custom.showRAM = false
+        model.applyVitals(custom)
+        XCTAssertEqual(Vitals.Settings.load(defaults: defaults).thresholdC, 88, "setup")
+
+        model.reset(.everything)
+
+        // Người dùng nhích một control bất kỳ trong tab Vitals sau khi xoá sạch.
+        vitals.apply(vitals.currentSettings)
+
+        let onDisk = Vitals.Settings.load(defaults: defaults)
+        XCTAssertEqual(onDisk.thresholdC, 95, "ngưỡng cũ không được sống lại")
+        XCTAssertTrue(onDisk.showRAM, "cờ hiển thị cũ không được sống lại")
+        vitals.timer?.invalidate()
+    }
+
+    /// §3.4: chặn ổ mạng là bảo vệ chính của cả tính năng — SQLite hỏng thật
+    /// trên NAS/SMB vì file locking không đáng tin.
+    func testANetworkVolumeDestinationIsRefusedWithoutTouchingTheStore() throws {
+        let target = try newDir("nas")
+        let store = FakeStore()
+        let model = makeModel(maintenance: store)
+
+        model.relocateDatabase(to: target, verdict: { _ in .notLocalVolume })
+
+        XCTAssertTrue(model.status?.contains("ổ local") == true,
+                      "phải nói rõ vì sao bị từ chối, thấy: \(model.status ?? "nil")")
+        XCTAssertEqual(store.calls, [], "bị từ chối ở vòng kiểm trước — không được đụng tới store")
+        XCTAssertEqual(model.dbPath, dbPath)
+    }
+
+    /// Banner đỏ "hãy khởi động lại" phải BIẾN MẤT khi app đã tự phục hồi —
+    /// một lần đổi chỗ thành công sau đó chứng minh có store đang mở, và để
+    /// banner nằm lại là bảo người dùng thoát một app đang chạy tốt.
+    func testARecoveredStoreClearsTheRestartBanner() throws {
+        let broken = try newDir("broken")
+        let good = try newDir("good")
+        let store = FakeStore()
+        store.openSucceeds = { _ in false }
+        let model = makeModel(maintenance: store)
+
+        model.relocateDatabase(to: broken)
+        XCTAssertTrue(model.needsRestart, "setup: phải rơi vào .failedAndStoreClosed")
+
+        store.openSucceeds = { _ in true }
+        model.relocateDatabase(to: good)
+
+        XCTAssertEqual(model.dbDirectory.path, good.path)
+        XCTAssertFalse(model.needsRestart, "store đã mở lại được — đừng bắt người dùng thoát app")
+    }
+
+    /// Spec §5 bước 2: đóng popup TRƯỚC `kt_close()`. Popup đang hiện là nơi
+    /// duy nhất còn có thể sinh một `lookup` mới ngay lúc store sắp đóng.
+    func testTheLookupPopupIsClosedBeforeTheStoreIsClosedWhenRelocating() throws {
+        let target = try newDir("new")
+        let journal = CallJournal()
+        let store = FakeStore()
+        store.journal = journal
+        let spy = SpyTranslate()
+        spy.journal = journal
+        let model = makeModel(maintenance: store, translate: spy)
+
+        model.relocateDatabase(to: target)
+
+        let hid = try XCTUnwrap(journal.entries.firstIndex(of: "hidePopup"))
+        let closed = try XCTUnwrap(journal.entries.firstIndex(of: "close"))
+        XCTAssertLessThan(hid, closed, "thứ tự thật: \(journal.entries)")
+    }
+
+    func testTheLookupPopupIsClosedBeforeTheStoreIsClosedWhenWipingEverything() {
+        let journal = CallJournal()
+        let backend = StubBackend()
+        backend.journal = journal
+        let spy = SpyTranslate()
+        spy.journal = journal
+        let model = makeModel(backend: backend, translate: spy)
+
+        model.reset(.everything)
+
+        XCTAssertEqual(journal.entries.first, "hidePopup", "thứ tự thật: \(journal.entries)")
+    }
+
+    /// Cửa sổ mở lần thứ hai phải đọc lại cặp ngôn ngữ: người dùng có thể vừa
+    /// đổi nó ngay trong popup tra từ, hoặc db vừa bị đổi chỗ/xoá sạch.
+    func testReopeningTheWindowRereadsTheLanguageConfiguration() {
+        let backend = StubBackend()
+        backend.config = LangConfig(source: nil, target: "vi", other: "en")
+        let model = makeModel(backend: backend)
+
+        model.refreshFromSystem()
+        XCTAssertEqual(model.langConfig?.target, "vi")
+        XCTAssertEqual(model.languages, ["en", "vi"])
+
+        backend.config = LangConfig(source: nil, target: "ja", other: "en")
+        model.refreshFromSystem()
+
+        XCTAssertEqual(model.langConfig?.target, "ja",
+                       "mở lại cửa sổ mà vẫn hiện bản nạp lần đầu là đúng bug .onAppear chỉ chạy một lần")
     }
 }
