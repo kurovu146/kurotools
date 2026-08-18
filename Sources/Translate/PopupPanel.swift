@@ -184,12 +184,16 @@ public final class PopupPanel {
         panel.setFrameOrigin(origin)
     }
 
-    /// Chiều cao nội dung được phép co giãn tới. Thấp hơn `90` panel trông vỡ
-    /// layout; cao hơn `520` phải cuộn thay vì phình thêm mãi — theo đúng máy
-    /// tra cứu hệ thống (`MAX_HEIGHT`/`MIN_HEIGHT` ở
-    /// `~/Dev/ktranslate/src/window.ts`, tuy số ở đây khác vì đo trên NSView
-    /// chứ không phải DOM).
-    public static let contentHeightRange: ClosedRange<CGFloat> = 90...520
+    /// Chiều cao nội dung được phép co giãn tới. **Không có sàn**: panel cao
+    /// đúng bằng nội dung, kể cả khi nội dung rất ngắn (một từ, một dòng lỗi)
+    /// — sàn cũ `90` để lại một dải trống dưới mọi kết quả ngắn, mà tra một
+    /// từ thì kết quả ngắn là trường hợp THƯỜNG, không phải ngoại lệ.
+    ///
+    /// Trần `520` giữ nguyên: cao hơn thế phải cuộn thay vì phình thêm mãi
+    /// (`ScrollView` ở `RootView`), theo đúng máy tra cứu hệ thống
+    /// (`MAX_HEIGHT` ở `~/Dev/ktranslate/src/window.ts`, tuy số ở đây khác vì
+    /// đo trên NSView chứ không phải DOM).
+    public static let contentHeightRange: ClosedRange<CGFloat> = 0...520
 
     /// Giữ MÉP TRÊN cố định khi đổi chiều cao: không có dòng dịch `origin.y`
     /// này, panel sẽ nhảy lên xuống mỗi lần kết quả tra cứu mới tới (vì
