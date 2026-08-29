@@ -48,4 +48,15 @@ for label in $LEGACY_LABELS; do
   echo "Đã gỡ LaunchAgent viết tay cũ ($label)."
 done
 
+# Screensaver là một bundle RIÊNG, nằm ngoài KuroTools.app — gỡ app mà bỏ quên
+# nó thì System Settings vẫn liệt kê một screensaver không còn ai nuôi, và bản
+# copy video (có thể vài trăm MB) nằm lì trong container.
+SAVER="$HOME/Library/Screen Savers/KuroToolsWallpaper.saver"
+SAVER_VIDEO="$HOME/Library/Containers/com.apple.ScreenSaver.Engine.legacyScreenSaver/Data/Library/Application Support/KuroTools"
+if [ -d "$SAVER" ] || [ -d "$SAVER_VIDEO" ]; then
+  pkill -f legacyScreenSaver 2>/dev/null || true
+  rm -rf "$SAVER" "$SAVER_VIDEO"
+  echo "Đã gỡ screensaver KuroTools Video và bản copy video của nó."
+fi
+
 echo "✓ Đã gỡ $DEST. Quạt trở lại Auto khi app thoát; helper root gỡ riêng bằng ./scripts/uninstall-helper.sh."

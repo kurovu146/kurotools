@@ -31,9 +31,11 @@ K  ▾
   and open ports, and send a terminate signal to a selected process.
 - **Dictionary lookup popup:** global hotkey captures the current text selection in any app and
   shows source + Oxford English definitions + Vietnamese translation in a floating panel.
-- **Video wallpaper:** pick any video (Settings ▸ Chung ▸ Hình nền video) and it plays,
+- **Video wallpaper + screensaver:** pick any video (Settings ▸ Chung ▸ Hình nền video) and it plays,
   muted and looping, as the desktop wallpaper — behind the icons, on every Space, click-through.
-  A toggle in the menu bar (`Hình nền video`) switches it on/off without opening Settings.
+  The same video doubles as a real macOS screensaver (`KuroToolsWallpaper.saver`, installed with
+  `./scripts/install-saver.sh`). A toggle in the menu bar (`Hình nền video`) switches the wallpaper
+  on/off without opening Settings.
 - **Safety, three layers:** RPM is clamped to the hardware range; the app auto-reverts to Auto
   when temperature hits the threshold (90/95/100 °C, with a menu-bar warning); the root helper
   reverts every fan to Auto if the app crashes / stops sending heartbeats — and on its own startup.
@@ -123,6 +125,21 @@ so playback never stutters; idle sleep is *not* blocked, so the Mac still sleeps
 Pick the video in *Settings ▸ Chung ▸ Hình nền video*, toggle it there or from the menu bar
 (*Hình nền video*). If the video file is deleted or moved, the wallpaper stops itself.
 
+### Screensaver
+
+`./scripts/install-saver.sh` builds `KuroToolsWallpaper.saver` and installs it into
+`~/Library/Screen Savers/`; pick *KuroTools Video* in System Settings ▸ Screen Saver.
+
+Third-party screensavers run sandboxed inside `legacyScreenSaver`, so the app and the saver cannot
+share preferences — measured on 2026-08-29: the same `UserDefaults` suite resolves to two different
+plists. The bridge is therefore a single file: the app copies the chosen video to
+`~/Library/Containers/com.apple.ScreenSaver.Engine.legacyScreenSaver/Data/Library/Application Support/KuroTools/screensaver-video.<ext>`,
+and the saver reads that file from inside its own container. No video there yet → the saver draws a
+black screen pointing back at Settings.
+
+The screensaver is *not* the lock screen: macOS gives third-party bundles no way to draw there, so
+playback stops when the Mac actually locks.
+
 ## Architecture
 
 Two processes, split by privilege:
@@ -149,6 +166,7 @@ Swift Package Manager modules:
 | `kurovitals-helper` | Root daemon: applies per-fan SMC writes, per-fan TTL watchdog |
 | `Translate` | Swift↔Rust bridge (`crates/ktranslate-core`/`ktranslate-ffi` over the C ABI): text capture, lookup, language config, saved words, TTS |
 | `Wallpaper` | Desktop-level video wallpaper windows (`VideoWallpaperController`) + shared settings store |
+| `WallpaperSaver` | The `.saver` bundle's principal class (`KTWallpaperSaverView`) + video locator |
 | `KuroTools` | Executable: wires `Vitals` + `Translate` + `Wallpaper` behind one menu bar icon (`AppDelegate`) |
 
 See `docs/superpowers/specs/` (design) and `docs/superpowers/spike-findings.md` (real M2 Pro SMC keys & verification).
@@ -157,7 +175,7 @@ See `docs/superpowers/specs/` (design) and `docs/superpowers/spike-findings.md` 
 
 ```bash
 make build        # cargo build --release (Rust core), then swift build
-make test         # cargo test (Rust core, 131 tests), then swift test (204 tests)
+make test         # cargo test (Rust core, 131 tests), then swift test (216 tests)
 ```
 
 Always go through `make` — never call `swift build`/`swift test` directly. SwiftPM does not treat
