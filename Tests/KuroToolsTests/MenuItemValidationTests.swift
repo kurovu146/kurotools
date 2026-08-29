@@ -1,4 +1,5 @@
 import AppKit
+import TestSupport
 import XCTest
 import Wallpaper
 @testable import KuroTools
@@ -22,11 +23,11 @@ final class MenuItemValidationTests: XCTestCase {
     override func setUp() {
         super.setUp()
         _ = NSApplication.shared
-        suiteName = "kurotools.menu.tests.\(UUID().uuidString)"
+        (_, suiteName) = PreferencesSandbox.make("menu")
     }
 
     override func tearDown() {
-        UserDefaults.standard.removePersistentDomain(forName: suiteName)
+        PreferencesSandbox.destroy(suiteName)
         super.tearDown()
     }
 

@@ -1,3 +1,4 @@
+import TestSupport
 import XCTest
 @testable import Wallpaper
 
@@ -9,12 +10,11 @@ final class WallpaperSettingsTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "kurotools.wallpaper.tests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        (defaults, suiteName) = PreferencesSandbox.make("wallpaper")
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
+        PreferencesSandbox.destroy(suiteName)
         defaults = nil
         super.tearDown()
     }

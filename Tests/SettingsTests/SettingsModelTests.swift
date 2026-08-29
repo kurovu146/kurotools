@@ -1020,8 +1020,7 @@ private final class SpyInstaller: SaverVideoInstalling, @unchecked Sendable {
 @MainActor
 final class SettingsModelSaverSyncTests: XCTestCase {
     private func makeModel(installer: SaverVideoInstalling) -> SettingsModel {
-        let suite = "kurotools.saver.tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let (defaults, _) = PreferencesSandbox.make("saver")
         return SettingsModel.forTesting(
             loginItem: StubLoginItem(),
             defaults: defaults,
@@ -1033,9 +1032,8 @@ final class SettingsModelSaverSyncTests: XCTestCase {
     /// nhưng cho cổng còn lại: `forTesting` không truyền installer thì phải ra
     /// `NoopSaverInstaller`, không phải container của máy.
     func testTheTestingFactoryDefaultsToAnInertInstaller() async {
-        let suite = "kurotools.saver.tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let (defaults, suite) = PreferencesSandbox.make("saver")
+        defer { PreferencesSandbox.destroy(suite) }
         let model = SettingsModel.forTesting(
             loginItem: StubLoginItem(),
             defaults: defaults,
