@@ -7,6 +7,16 @@ import XCTest
 /// sandbox `NSHomeDirectory()` ĐÃ trỏ vào container). Không có gì trong trình
 /// biên dịch giữ hai công thức đó khớp nhau — test này là thứ duy nhất giữ.
 final class SaverVideoLocatorTests: XCTestCase {
+    func testFileNameIsAlignedBetweenAppAndSaver() {
+        // Nếu app và saver có baseName khác nhau, app viết một tên file
+        // mà saver không tìm được — màn hình đen, không có error. Test này
+        // buộc hai constant phải khớp.
+        XCTAssertEqual(
+            SaverVideoPaths.baseName,
+            SaverVideoLocator.baseName,
+            "app và saver phải tìm cùng tên file")
+    }
+
     func testAppSideAndSaverSideResolveToTheSameFolder() {
         let home = URL(fileURLWithPath: "/Users/test")
         let saverApplicationSupport = home
@@ -27,7 +37,7 @@ final class SaverVideoLocatorTests: XCTestCase {
 
         let folder = SaverVideoLocator.folder(inApplicationSupport: base)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let video = folder.appendingPathComponent("screensaver-video.mov")
+        let video = folder.appendingPathComponent("\(SaverVideoPaths.baseName).mov")
         try "x".write(to: video, atomically: true, encoding: .utf8)
 
         XCTAssertEqual(
