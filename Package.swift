@@ -4,6 +4,12 @@ import PackageDescription
 let package = Package(
     name: "KuroTools",
     platforms: [.macOS(.v13)],
+    products: [
+        // Bundle `.saver` không dựng được bằng SwiftPM; `scripts/bundle-saver.sh`
+        // lấy dylib này rồi tự gói. Product phải là `.dynamic` — một static
+        // library thì không có gì để `dlopen`.
+        .library(name: "KuroToolsWallpaper", type: .dynamic, targets: ["WallpaperSaver"]),
+    ],
     targets: [
         .target(name: "HelperProtocol"),
         .target(name: "SMCKit"),
@@ -24,6 +30,18 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreGraphics"),
+            ]
+        ),
+        // KHÔNG phụ thuộc `Wallpaper`: kéo nó vào là nhét luôn code cửa sổ
+        // desktop-level vào bundle screensaver. Chỗ duy nhất hai bên phải khớp
+        // là đường dẫn, và `SaverVideoLocatorTests` giữ nó khớp.
+        .target(
+            name: "WallpaperSaver",
+            path: "Sources/WallpaperSaver",
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("ScreenSaver"),
             ]
         ),
         .target(
@@ -51,6 +69,6 @@ let package = Package(
         .testTarget(name: "VitalsTests", dependencies: ["Vitals", "FanControl", "TestSupport"]),
         .testTarget(name: "TranslateTests", dependencies: ["Translate", "TestSupport"]),
         .testTarget(name: "SettingsTests", dependencies: ["Settings", "TestSupport"]),
-        .testTarget(name: "WallpaperTests", dependencies: ["Wallpaper"]),
+        .testTarget(name: "WallpaperTests", dependencies: ["Wallpaper", "WallpaperSaver"]),
     ]
 )
