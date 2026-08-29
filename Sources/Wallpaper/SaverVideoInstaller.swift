@@ -29,6 +29,25 @@ public enum SaverVideoPaths {
 
 public enum SaverVideoInstallError: Error, Equatable {
     case sourceMissing(URL)
+    /// `fileExists(atPath:)` trả `true` cho cả thư mục, và `copyItem` thì vui
+    /// vẻ copy nguyên cây. `NSOpenPanel` đặt `canChooseDirectories = false` nên
+    /// UI không tới được đây, nhưng đây là API public.
+    case sourceIsNotAFile(URL)
+}
+
+/// `.failed(error.localizedDescription)` đi thẳng vào dòng trạng thái tiếng
+/// Việt trong Settings. Không có cái này, một `SaverVideoInstallError` hiện ra
+/// thành "The operation couldn't be completed. (Wallpaper.SaverVideoInstallError
+/// error 0.)" — lỗi Cocoa (đầy đĩa…) thì tự localize tốt, ca này thì không.
+extension SaverVideoInstallError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .sourceMissing(let url):
+            return "Không tìm thấy video \(url.lastPathComponent)."
+        case .sourceIsNotAFile(let url):
+            return "\(url.lastPathComponent) là một thư mục, không phải video."
+        }
+    }
 }
 
 /// Seam cho `SettingsModel`: test không được copy gì vào container thật.
@@ -66,18 +85,46 @@ public struct SaverVideoInstaller: SaverVideoInstalling {
     public func install(_ source: URL) throws -> URL {
         let fm = FileManager()
         // Kiểm tra TRƯỚC khi tạo thư mục: nguồn hỏng không được để lại dấu vết.
-        guard fm.fileExists(atPath: source.path) else {
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: source.path, isDirectory: &isDirectory) else {
             throw SaverVideoInstallError.sourceMissing(source)
         }
+        guard !isDirectory.boolValue else {
+            throw SaverVideoInstallError.sourceIsNotAFile(source)
+        }
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-        try removeInstalled(fm)
 
         let ext = source.pathExtension
         let name = ext.isEmpty
             ? SaverVideoPaths.baseName
             : "\(SaverVideoPaths.baseName).\(ext)"
         let destination = folder.appendingPathComponent(name)
-        try fm.copyItem(at: source, to: destination)
+
+        // Copy sang tên tạm rồi mới rename đè: `copyItem` hỏng GIỮA CHỪNG (đầy
+        // đĩa, rút ổ ngoài, app bị kill) để lại một file cụt, và bản cũ thì đã
+        // bị xoá từ trước — saver dựng player từ đúng cái file rác đó và cho ra
+        // màn hình đen câm. Rename trong cùng volume là atomic, nên không có
+        // thời điểm nào container ở trạng thái nửa vời.
+        //
+        // Tên tạm bắt đầu bằng dấu chấm nên `deletingPathExtension` của nó
+        // KHÔNG bằng `baseName` — `removeInstalled` và `installedVideo` đều bỏ
+        // qua, kể cả khi một lần chạy trước bị kill và bỏ file tạm lại.
+        let staging = folder.appendingPathComponent(".\(name).partial-\(UUID().uuidString)")
+        do {
+            try fm.copyItem(at: source, to: staging)
+        } catch {
+            try? fm.removeItem(at: staging)
+            throw error
+        }
+        do {
+            // Chỉ xoá bản cũ khi bản mới đã nằm nguyên vẹn trên đĩa: cửa sổ
+            // "không có video nào" thu về đúng một lần rename.
+            try removeInstalled(fm)
+            try fm.moveItem(at: staging, to: destination)
+        } catch {
+            try? fm.removeItem(at: staging)
+            throw error
+        }
         return destination
     }
 
