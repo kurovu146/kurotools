@@ -2,11 +2,13 @@ import AppKit
 import Settings
 import Translate
 import Vitals
+import Wallpaper
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let vitals = VitalsController()
     private let translate = TranslateController()
+    private let wallpaper = VideoWallpaperController()
     private let menu = NSMenu()
     /// Dựng SAU `translate.start(dbPath:)` — `SettingsModel` cần `dbPath`
     /// thật, không phải chỗ nó SẼ nằm. IUO vì mọi lối dùng khác đều chạy sau
@@ -28,11 +30,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `HotkeyCombo.displayString` xếp theo thứ tự macOS (`⇧⌘D`).
         vitals.extraItemsProvider = { [weak self] in
             guard let self else { return [] }
-            let item = NSMenuItem(title: LookupMenuItem.title(for: translate.currentHotkey),
-                                  action: #selector(triggerLookup), keyEquivalent: "")
-            item.target = self
-            return [item]
+            let lookupItem = NSMenuItem(title: LookupMenuItem.title(for: translate.currentHotkey),
+                                        action: #selector(triggerLookup), keyEquivalent: "")
+            lookupItem.target = self
+
+            // Hình nền video: toggle nhanh trong menu. Chưa chọn video thì
+            // mục này bị khoá — bật từ menu khi chưa có video là chẳng có gì
+            // để hiện, và chỉ đường về Settings còn rõ hơn một công tắc vô
+            // hiệu hoá bí hiểm.
+            let wallpaperItem = NSMenuItem(title: "Hình nền video",
+                                           action: #selector(toggleVideoWallpaper), keyEquivalent: "")
+            wallpaperItem.target = self
+            if wallpaper.videoURL == nil {
+                wallpaperItem.title = "Hình nền video — chưa chọn video"
+                wallpaperItem.isEnabled = false
+            } else {
+                wallpaperItem.state = wallpaper.isEnabled ? .on : .off
+            }
+            return [lookupItem, wallpaperItem]
         }
+
+        // Khôi phục cửa sổ wallpaper từ lần chạy trước (bật sẵn nếu đã chọn
+        // video + enabled). Chạy TRƯỚC khi dựng SettingsModel — model đọc
+        // trạng thái từ controller, không phải từ đĩa.
+        wallpaper.restore()
 
         let dbPath = DatabaseLocation.resolve(appSupport: DatabaseMigration.defaultAppSupport())
         translate.start(dbPath: dbPath)
@@ -42,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             vitals: vitals,
             backend: translate.backend,
             loginItem: SMAppServiceLoginItem(),
+            wallpaper: wallpaper,
             dbPath: dbPath)
 
         // Vitals không được biết module Settings tồn tại (phụ thuộc phải một
@@ -62,4 +84,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func triggerLookup() { translate.toggle() }
+
+    @objc private func toggleVideoWallpaper() {
+        wallpaper.setEnabled(!wallpaper.isEnabled)
+    }
 }

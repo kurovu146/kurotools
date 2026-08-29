@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Translate
+import UniformTypeIdentifiers
 
 /// Cổng cuối trước một thao tác không lấy lại được. Tách khỏi view để đo được
 /// — một `NSAlert` không chạy được trong test, nhưng luật "phải gõ đúng chữ"
@@ -51,6 +52,8 @@ public struct GeneralTab: View {
                 hotkeySection
                 Divider()
                 loginItemSection
+                Divider()
+                wallpaperSection
                 Divider()
                 dataSection
             }
@@ -119,6 +122,50 @@ public struct GeneralTab: View {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
         else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    // MARK: - Hình nền video
+
+    private var wallpaperSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Hình nền video").font(.system(size: 13, weight: .semibold))
+
+            Toggle("Bật hình nền video", isOn: Binding(
+                get: { model.wallpaperEnabled },
+                set: { model.setWallpaperEnabled($0) }))
+                .font(.system(size: 13))
+
+            HStack(spacing: 8) {
+                Button("Chọn video…") { chooseWallpaperVideo() }
+                if let url = model.wallpaperVideoURL {
+                    Text(url.lastPathComponent)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else {
+                    Text("Chưa chọn video")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+            Text("Video chạy sau icons trên desktop, tắt tiếng, lặp vô hạn — bật/tắt nhanh qua menu bar (K ▸ Hình nền video).")
+                .font(.system(size: 11))
+                .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func chooseWallpaperVideo() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Chọn"
+        panel.message = "Chọn video làm hình nền desktop và screensaver"
+        panel.allowedContentTypes = [.movie]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        model.setWallpaperVideo(url)
     }
 
     // MARK: - Dữ liệu

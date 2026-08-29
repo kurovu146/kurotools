@@ -4,6 +4,19 @@ import TestSupport
 @testable import Settings
 @testable import Translate
 @testable import Vitals
+@testable import Wallpaper
+
+/// Wallpaper giả: cửa sổ + AVPlayer thật không dựng được trong test, nhưng
+/// Settings phải quan sát được controller có được gọi đúng không và dòng
+/// phản hồi có lấy đúng message của `installScreensaver`.
+@MainActor
+private final class StubWallpaper: WallpaperControlling {
+    var isEnabled = false
+    var videoURL: URL?
+
+    func setEnabled(_ on: Bool) { isEnabled = on }
+    func setVideo(_ url: URL?) { videoURL = url }
+}
 
 /// Login item giả — bám đúng hợp đồng BA TRẠNG THÁI của `LoginItemControlling`
 /// (Task 9), không phải một `Bool`. `nextState` cho phép dựng ca
@@ -183,7 +196,8 @@ final class SettingsModelTests: XCTestCase {
         backend: TranslateBackend = StubBackend(),
         maintenance: StoreMaintaining? = nil,
         translate: TranslateControlling? = nil,
-        vitals: VitalsController? = nil
+        vitals: VitalsController? = nil,
+        wallpaper: WallpaperControlling? = nil
     ) -> SettingsModel {
         SettingsModel(
             translate: translate ?? TranslateController(),
@@ -191,6 +205,7 @@ final class SettingsModelTests: XCTestCase {
             backend: backend,
             loginItem: loginItem,
             maintenance: maintenance,
+            wallpaper: wallpaper,
             dbPath: dbPath,
             defaultDBPath: defaultDBPath,
             defaults: defaults,
@@ -878,5 +893,54 @@ final class SettingsModelTests: XCTestCase {
 
         XCTAssertEqual(model.langConfig?.target, "ja",
                        "mở lại cửa sổ mà vẫn hiện bản nạp lần đầu là đúng bug .onAppear chỉ chạy một lần")
+    }
+
+    // MARK: - Hình nền video
+
+    func testEnablingWallpaperDelegatesToTheController() {
+        let wallpaper = StubWallpaper()
+        wallpaper.videoURL = URL(fileURLWithPath: "/tmp/clip.mp4")
+        let model = makeModel(wallpaper: wallpaper)
+
+        model.setWallpaperEnabled(true)
+
+        XCTAssertTrue(wallpaper.isEnabled, "Settings phải đẩy xuống controller, không tự ghi cờ riêng")
+        XCTAssertTrue(model.wallpaperEnabled)
+        XCTAssertEqual(model.status, "Đã bật hình nền video.")
+    }
+
+    func testEnablingWithoutAVideoStillDelegatesButGuides() {
+        let wallpaper = StubWallpaper()
+        let model = makeModel(wallpaper: wallpaper)
+
+        model.setWallpaperEnabled(true)
+
+        XCTAssertTrue(wallpaper.isEnabled)
+        XCTAssertEqual(model.status, "Đã bật — chọn một video để hiện hình nền.",
+                       "bật mà chưa có video không được im lặng: phải chỉ đường về nút chọn video")
+    }
+
+    func testChoosingAVideoIsDelegatedAndReflected() throws {
+        let wallpaper = StubWallpaper()
+        let model = makeModel(wallpaper: wallpaper)
+        let url = try XCTUnwrap(URL(fileURLWithPath: "/tmp/clip.mp4"))
+
+        model.setWallpaperVideo(url)
+
+        XCTAssertEqual(wallpaper.videoURL, url)
+        XCTAssertEqual(model.wallpaperVideoURL, url)
+        XCTAssertEqual(model.status, "Đã chọn clip.mp4.")
+    }
+
+    func testRefreshRereadsWallpaperStateFromTheController() {
+        let wallpaper = StubWallpaper()
+        let model = makeModel(wallpaper: wallpaper)
+        wallpaper.isEnabled = true
+        wallpaper.videoURL = URL(fileURLWithPath: "/tmp/clip.mp4")
+
+        model.refreshFromSystem()
+
+        XCTAssertTrue(model.wallpaperEnabled)
+        XCTAssertEqual(model.wallpaperVideoURL, wallpaper.videoURL)
     }
 }

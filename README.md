@@ -31,6 +31,9 @@ K  ▾
   and open ports, and send a terminate signal to a selected process.
 - **Dictionary lookup popup:** global hotkey captures the current text selection in any app and
   shows source + Oxford English definitions + Vietnamese translation in a floating panel.
+- **Video wallpaper:** pick any video (Settings ▸ Chung ▸ Hình nền video) and it plays,
+  muted and looping, as the desktop wallpaper — behind the icons, on every Space, click-through.
+  A toggle in the menu bar (`Hình nền video`) switches it on/off without opening Settings.
 - **Safety, three layers:** RPM is clamped to the hardware range; the app auto-reverts to Auto
   when temperature hits the threshold (90/95/100 °C, with a menu-bar warning); the root helper
   reverts every fan to Auto if the app crashes / stops sending heartbeats — and on its own startup.
@@ -110,6 +113,16 @@ Click the **`K`** in the menu bar:
 - **Settings** → toggle which metric rows appear, or set the over-temp auto-revert threshold.
 - **Quit** reverts all fans to Auto and exits.
 
+## Video wallpaper
+
+The wallpaper video is a borderless window placed at macOS's *desktop* window level — behind the
+desktop icons, invisible to clicks, present on every Space (including fullscreen app spaces).
+It is driven by `AVQueuePlayer` + `AVPlayerLooper` (muted), and App Nap is disabled while it runs
+so playback never stutters; idle sleep is *not* blocked, so the Mac still sleeps normally.
+
+Pick the video in *Settings ▸ Chung ▸ Hình nền video*, toggle it there or from the menu bar
+(*Hình nền video*). If the video file is deleted or moved, the wallpaper stops itself.
+
 ## Architecture
 
 Two processes, split by privilege:
@@ -135,7 +148,8 @@ Swift Package Manager modules:
 | `Vitals` | AppKit menu bar UI (`VitalsController`, `MenuBarController`), settings, process inspector |
 | `kurovitals-helper` | Root daemon: applies per-fan SMC writes, per-fan TTL watchdog |
 | `Translate` | Swift↔Rust bridge (`crates/ktranslate-core`/`ktranslate-ffi` over the C ABI): text capture, lookup, language config, saved words, TTS |
-| `KuroTools` | Executable: wires `Vitals` + `Translate` behind one menu bar icon (`AppDelegate`) |
+| `Wallpaper` | Desktop-level video wallpaper windows (`VideoWallpaperController`) + shared settings store |
+| `KuroTools` | Executable: wires `Vitals` + `Translate` + `Wallpaper` behind one menu bar icon (`AppDelegate`) |
 
 See `docs/superpowers/specs/` (design) and `docs/superpowers/spike-findings.md` (real M2 Pro SMC keys & verification).
 
@@ -143,7 +157,7 @@ See `docs/superpowers/specs/` (design) and `docs/superpowers/spike-findings.md` 
 
 ```bash
 make build        # cargo build --release (Rust core), then swift build
-make test         # cargo test (Rust core, 123 tests), then swift test (65 tests)
+make test         # cargo test (Rust core, 131 tests), then swift test (204 tests)
 ```
 
 Always go through `make` — never call `swift build`/`swift test` directly. SwiftPM does not treat

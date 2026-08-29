@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Translate
 import Vitals
+import Wallpaper
 
 /// Nối `TranslateBackend` (Task 6) sang `StoreMaintaining` (Task 5).
 /// `KTranslateBridge` có `closeStore`/`openStore` nhưng KHÔNG có `canRead()`,
@@ -80,6 +81,7 @@ public final class SettingsModel: ObservableObject {
     private let backend: TranslateBackend
     private let loginItem: LoginItemControlling
     private let maintenance: StoreMaintaining
+    private let wallpaper: WallpaperControlling
     private let defaults: UserDefaults
     private let bundleID: String
     /// Chỗ db nằm khi không có override — `DataReset.perform(.everything, …)`
@@ -130,6 +132,11 @@ public final class SettingsModel: ObservableObject {
     @Published public private(set) var recentLanguages: [String] = []
     @Published public private(set) var langConfig: LangConfig?
 
+    /// Bản sao trạng thái wallpaper, đọc từ `WallpaperControlling` — controller
+    /// (cửa sổ + AVPlayer thật) không được phép sống trong test.
+    @Published public private(set) var wallpaperEnabled: Bool
+    @Published public private(set) var wallpaperVideoURL: URL?
+
     public var dbDirectory: URL { dbPath.deletingLastPathComponent() }
 
     /// `maintenance` mặc định là adapter bọc chính `backend`; test tiêm store
@@ -143,6 +150,7 @@ public final class SettingsModel: ObservableObject {
         backend: TranslateBackend,
         loginItem: LoginItemControlling,
         maintenance: StoreMaintaining? = nil,
+        wallpaper: WallpaperControlling? = nil,
         dbPath: URL,
         defaultDBPath: URL = DatabaseMigration.defaultDatabasePath(
             appSupport: DatabaseMigration.defaultAppSupport()),
@@ -154,6 +162,10 @@ public final class SettingsModel: ObservableObject {
         self.backend = backend
         self.loginItem = loginItem
         self.maintenance = maintenance ?? BackendStoreMaintenance(backend: backend)
+        // `NoopWallpaper()` ở đây chứ không làm default argument: biểu thức
+        // mặc định chạy ở ngữ cảnh nonisolated, mà `NoopWallpaper.init` là
+        // `@MainActor` (cùng ca với `TranslateController` bên dưới).
+        self.wallpaper = wallpaper ?? NoopWallpaper()
         self.dbPath = dbPath
         self.defaultDBPath = defaultDBPath
         self.defaults = defaults
@@ -163,6 +175,8 @@ public final class SettingsModel: ObservableObject {
         loginItemState = loginItem.state
         runAtLogin = loginItem.state != .off
         vitalsSettings = vitals.currentSettings
+        wallpaperEnabled = self.wallpaper.isEnabled
+        wallpaperVideoURL = self.wallpaper.videoURL
     }
 
     /// Đọc lại mọi thứ có thể đã đổi sau lưng cửa sổ này: login item bị tắt
@@ -182,6 +196,8 @@ public final class SettingsModel: ObservableObject {
         languages = backend.languages()
         recentLanguages = backend.recentLanguages()
         langConfig = backend.langConfig()
+        wallpaperEnabled = wallpaper.isEnabled
+        wallpaperVideoURL = wallpaper.videoURL
     }
 
     // MARK: - Phím tắt
@@ -232,6 +248,26 @@ public final class SettingsModel: ObservableObject {
     private func readLoginItemState() {
         loginItemState = loginItem.state
         runAtLogin = loginItemState != .off
+    }
+
+    // MARK: - Hình nền video
+
+    /// Luôn đọc LẠI từ controller sau khi đặt: controller mới là nơi giữ sự
+    /// thật (nó có thể từ chối — vd. chưa có video — mà UI không biết).
+    public func setWallpaperEnabled(_ on: Bool) {
+        wallpaper.setEnabled(on)
+        wallpaperEnabled = wallpaper.isEnabled
+        wallpaperVideoURL = wallpaper.videoURL
+        status = on && wallpaperVideoURL == nil
+            ? "Đã bật — chọn một video để hiện hình nền."
+            : (on ? "Đã bật hình nền video." : "Đã tắt hình nền video.")
+    }
+
+    public func setWallpaperVideo(_ url: URL?) {
+        wallpaper.setVideo(url)
+        wallpaperEnabled = wallpaper.isEnabled
+        wallpaperVideoURL = wallpaper.videoURL
+        status = url.map { "Đã chọn \($0.lastPathComponent)." } ?? "Đã bỏ video."
     }
 
     // MARK: - Đổi chỗ db
@@ -500,7 +536,8 @@ extension SettingsModel {
     static func forTesting(
         loginItem: LoginItemControlling,
         defaults: UserDefaults,
-        bundleID: String
+        bundleID: String,
+        wallpaper: WallpaperControlling? = nil
     ) -> SettingsModel {
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString)
@@ -509,6 +546,7 @@ extension SettingsModel {
             vitals: VitalsController(defaults: defaults),
             backend: InertBackend(),
             loginItem: loginItem,
+            wallpaper: wallpaper,
             dbPath: tmp.appendingPathComponent(DatabaseMigration.databaseName),
             defaultDBPath: tmp.appendingPathComponent(DatabaseMigration.databaseName),
             defaults: defaults,

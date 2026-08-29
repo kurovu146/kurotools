@@ -18,6 +18,15 @@ let package = Package(
                 dependencies: ["SMCKit", "SystemStats", "SensorReader", "FanControl", "HelperProtocol"],
                 path: "Sources/Vitals"),
         .target(
+            name: "Wallpaper",
+            path: "Sources/Wallpaper",
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("CoreGraphics"),
+            ]
+        ),
+        .target(
             name: "Translate",
             path: "Sources/Translate",
             linkerSettings: [
@@ -30,8 +39,8 @@ let package = Package(
                 .linkedFramework("Carbon"),
             ]
         ),
-        .target(name: "Settings", dependencies: ["Translate", "Vitals"], path: "Sources/Settings"),
-        .executableTarget(name: "KuroTools", dependencies: ["Vitals", "Translate", "Settings"], path: "Sources/KuroTools"),
+        .target(name: "Settings", dependencies: ["Translate", "Vitals", "Wallpaper"], path: "Sources/Settings"),
+        .executableTarget(name: "KuroTools", dependencies: ["Vitals", "Translate", "Settings", "Wallpaper"], path: "Sources/KuroTools"),
         // Chỉ test dùng — không product nào phụ thuộc, nên nó không bao giờ đi
         // vào KuroTools.app.
         .target(name: "TestSupport", path: "Tests/TestSupport"),
@@ -42,5 +51,6 @@ let package = Package(
         .testTarget(name: "VitalsTests", dependencies: ["Vitals", "FanControl", "TestSupport"]),
         .testTarget(name: "TranslateTests", dependencies: ["Translate", "TestSupport"]),
         .testTarget(name: "SettingsTests", dependencies: ["Settings", "TestSupport"]),
+        .testTarget(name: "WallpaperTests", dependencies: ["Wallpaper"]),
     ]
 )
