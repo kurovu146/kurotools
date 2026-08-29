@@ -288,14 +288,39 @@ public final class SettingsModel: ObservableObject {
         return syncSaverVideo(url)
     }
 
+    /// Việc đồng bộ gần nhất đang xếp hàng — mỗi lần gọi mới PHẢI đợi lần
+    /// TRƯỚC xong rồi mới đụng file, nếu không `install`/`clear` của hai lần
+    /// gọi chạy song song trên CÙNG một đích, và thứ tự HOÀN THÀNH (không
+    /// phải thứ tự GỌI) sẽ quyết định nội dung container.
+    private var saverSyncTask: Task<Void, Never>?
+    /// Tăng ở MỌI lần gọi `syncSaverVideo`. Đối chiếu ở cuối task — một lần
+    /// gọi bị một lần gọi SAU vượt mặt (đã có generation mới hơn) thì kết quả
+    /// của nó bị BỎ, không được ghi vào `saverSyncStatus`: chọn video A rồi
+    /// đổi sang B trước khi A copy xong không được để A xong TRỄ rồi đè
+    /// `.synced`/`.failed` của A lên đúng trạng thái mà B vừa ghi.
+    private var saverSyncGeneration = 0
+
     private func syncSaverVideo(_ url: URL?) -> Task<Void, Never> {
         let installer = saverInstaller
+        saverSyncGeneration += 1
+        let generation = saverSyncGeneration
+        let previous = saverSyncTask
+
         guard let url else {
             saverSyncStatus = .idle
-            return Task { await Task.detached { try? installer.clear() }.value }
+            let task = Task {
+                // Đợi lần gọi TRƯỚC xong rồi mới đụng file — xem chú thích ở
+                // `saverSyncTask`.
+                await previous?.value
+                await Task.detached { try? installer.clear() }.value
+            }
+            saverSyncTask = task
+            return task
         }
+
         saverSyncStatus = .syncing
-        return Task { [weak self] in
+        let task = Task { [weak self] in
+            await previous?.value
             // Video vài trăm MB: copy trên main thread làm treo cửa sổ Settings.
             let failure: String? = await Task.detached {
                 do {
@@ -305,10 +330,14 @@ public final class SettingsModel: ObservableObject {
                     return error.localizedDescription
                 }
             }.value
-            guard let self else { return }
+            // Chỉ lần gọi MỚI NHẤT mới được ghi trạng thái — xem chú thích ở
+            // `saverSyncGeneration`.
+            guard let self, self.saverSyncGeneration == generation else { return }
             let next: SaverSyncStatus = failure.map { .failed($0) } ?? .synced
             self.saverSyncStatus = next
         }
+        saverSyncTask = task
+        return task
     }
 
     // MARK: - Đổi chỗ db

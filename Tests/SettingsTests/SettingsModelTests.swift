@@ -951,12 +951,17 @@ private final class SpyInstaller: SaverVideoInstalling, @unchecked Sendable {
     private var _installed: [URL] = []
     private var _clears = 0
     var errorToThrow: Error?
+    /// Chạy TRƯỚC khi ghi nhận lời gọi, trên thread nền của `Task.detached` —
+    /// chỗ test race chặn (và tự quyết định có ném lỗi hay không cho) một lời
+    /// gọi cụ thể, để dựng đúng ca "lời gọi TRƯỚC hoàn thành SAU lời gọi SAU".
+    var beforeInstall: ((URL) throws -> Void)?
 
     var installed: [URL] { lock.lock(); defer { lock.unlock() }; return _installed }
     var clears: Int { lock.lock(); defer { lock.unlock() }; return _clears }
 
     @discardableResult
     func install(_ source: URL) throws -> URL {
+        try beforeInstall?(source)
         if let errorToThrow { throw errorToThrow }
         lock.lock(); _installed.append(source); lock.unlock()
         return source
@@ -1011,5 +1016,42 @@ final class SettingsModelSaverSyncTests: XCTestCase {
         guard case .failed = model.saverSyncStatus else {
             return XCTFail("copy hỏng mà UI vẫn báo đã đồng bộ là ca tệ nhất: screensaver phát video CŨ")
         }
+    }
+
+    /// 🔑 Chọn A, rồi đổi ý sang B TRƯỚC KHI copy của A xong. Giữ install(A)
+    /// lại bằng semaphore — và khi được thả, A LUÔN THẤT BẠI; install(B) chạy
+    /// tự do và LUÔN THÀNH CÔNG. Nếu hai lần gọi không được xếp hàng/không có
+    /// generation guard, A đến TRỄ sẽ đè `.failed` lên đúng `.synced` mà B vừa
+    /// ghi — dù B mới là lựa chọn CUỐI CÙNG của người dùng. Cả A lẫn B đều
+    /// dùng cùng cách thành-công-hay-thất-bại (`.synced` hay `.failed`) nên
+    /// nếu hai lần đó ra giá trị GIỐNG NHAU thì phép so sánh không nói lên
+    /// điều gì — đây là lý do phải cho A hỏng: A và B phải phân biệt được.
+    /// `await` cả hai Task trước khi assert để không phụ thuộc thời điểm lập
+    /// lịch: không sleep, không đoán.
+    func testASecondCallOutrunningTheFirstStillAppliesInCallOrder() async {
+        let spy = SpyInstaller()
+        let model = makeModel(installer: spy)
+        let urlA = URL(fileURLWithPath: "/tmp/a.mp4")
+        let urlB = URL(fileURLWithPath: "/tmp/b.mp4")
+
+        let releaseA = DispatchSemaphore(value: 0)
+        spy.beforeInstall = { url in
+            if url == urlA {
+                releaseA.wait()
+                throw SaverVideoInstallError.sourceMissing(urlA)
+            }
+        }
+
+        let taskA = model.setWallpaperVideo(urlA)
+        let taskB = model.setWallpaperVideo(urlB)
+        releaseA.signal()
+
+        await taskA.value
+        await taskB.value
+
+        XCTAssertEqual(spy.installed, [urlB],
+                       "container phải chỉ giữ video B — lựa chọn CUỐI CÙNG của người dùng")
+        XCTAssertEqual(model.saverSyncStatus, .synced,
+                       "A đến trễ và hỏng không được phép đè lên trạng thái ĐÚNG mà B vừa ghi")
     }
 }
