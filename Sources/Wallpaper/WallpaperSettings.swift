@@ -28,8 +28,9 @@ public final class WallpaperSettingsStore {
 
     private let defaults: UserDefaults
 
-    /// `defaults` là seam cho test; production dùng suite dùng chung với
-    /// screensaver. `?? .standard` phòng ca suite nil (không xảy ra ở đây).
+    /// `defaults` là seam cho test; production dùng suite RIÊNG của app —
+    /// screensaver bị sandbox nên không đọc được nó, xem chú thích đầu file.
+    /// `?? .standard` phòng ca suite nil (không xảy ra ở đây).
     public init(defaults: UserDefaults = UserDefaults(suiteName: WallpaperSettingsStore.suiteName) ?? .standard) {
         self.defaults = defaults
     }

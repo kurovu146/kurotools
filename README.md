@@ -92,7 +92,9 @@ stale Rust core.)
 Removal:
 
 ```bash
-./scripts/uninstall-app.sh        # quit the app + remove /Applications/KuroTools.app
+./scripts/uninstall-app.sh        # quit the app, remove /Applications/KuroTools.app, any
+                                  # hand-written LaunchAgent, the .saver bundle, and the
+                                  # video copied into the screensaver's container
 ./scripts/uninstall-helper.sh     # remove the root helper (fans return to system Auto)
 ```
 
@@ -165,7 +167,7 @@ Swift Package Manager modules:
 | `Vitals` | AppKit menu bar UI (`VitalsController`, `MenuBarController`), settings, process inspector |
 | `kurovitals-helper` | Root daemon: applies per-fan SMC writes, per-fan TTL watchdog |
 | `Translate` | Swift↔Rust bridge (`crates/ktranslate-core`/`ktranslate-ffi` over the C ABI): text capture, lookup, language config, saved words, TTS |
-| `Wallpaper` | Desktop-level video wallpaper windows (`VideoWallpaperController`) + shared settings store |
+| `Wallpaper` | Desktop-level video wallpaper windows (`VideoWallpaperController`), the app's own settings store, and `SaverVideoInstaller` (copies the chosen video into the screensaver's container) |
 | `WallpaperSaver` | The `.saver` bundle's principal class (`KTWallpaperSaverView`) + video locator |
 | `KuroTools` | Executable: wires `Vitals` + `Translate` + `Wallpaper` behind one menu bar icon (`AppDelegate`) |
 
@@ -175,7 +177,8 @@ See `docs/superpowers/specs/` (design) and `docs/superpowers/spike-findings.md` 
 
 ```bash
 make build        # cargo build --release (Rust core), then swift build
-make test         # cargo test (Rust core, 131 tests), then swift test (216 tests)
+make test         # cargo test (Rust core, 131 tests + 1 live-network test that stays
+                  # ignored), then swift test (229 tests)
 ```
 
 Always go through `make` — never call `swift build`/`swift test` directly. SwiftPM does not treat
