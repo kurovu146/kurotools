@@ -3,7 +3,7 @@ LIB := $(CARGO_TARGET)/release/libktranslate_ffi.a
 STAMP := $(CARGO_TARGET)/.ffi-hash
 export MACOSX_DEPLOYMENT_TARGET := 13.0
 
-.PHONY: rust build test app clean
+.PHONY: rust build test app saver clean
 
 rust:
 	cargo build --release --target-dir $(CARGO_TARGET)
@@ -28,6 +28,9 @@ test: rust
 
 app:
 	./scripts/bundle-app.sh
+
+saver:
+	./scripts/bundle-saver.sh
 
 clean:
 	cargo clean --target-dir $(CARGO_TARGET)

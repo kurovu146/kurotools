@@ -8,3 +8,4 @@ docs/superpowers/
 target/
 crates/target/
 *.app
+*.saver
