@@ -64,6 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backend: translate.backend,
             loginItem: SMAppServiceLoginItem(),
             wallpaper: wallpaper,
+            // Installer THẬT chỉ được dựng ở đây, chỗ duy nhất được phép chạm
+            // container của screensaver — `SettingsModel` không tự dựng nổi
+            // một cái, nên không test nào lỡ tay lấy trúng.
+            saverInstaller: SaverVideoInstaller(),
             dbPath: dbPath)
 
         // Vitals không được biết module Settings tồn tại (phụ thuộc phải một

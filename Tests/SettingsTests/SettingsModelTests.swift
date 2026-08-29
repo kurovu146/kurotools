@@ -197,7 +197,8 @@ final class SettingsModelTests: XCTestCase {
         maintenance: StoreMaintaining? = nil,
         translate: TranslateControlling? = nil,
         vitals: VitalsController? = nil,
-        wallpaper: WallpaperControlling? = nil
+        wallpaper: WallpaperControlling? = nil,
+        saverInstaller: SaverVideoInstalling = NoopSaverInstaller()
     ) -> SettingsModel {
         SettingsModel(
             translate: translate ?? TranslateController(),
@@ -206,6 +207,7 @@ final class SettingsModelTests: XCTestCase {
             loginItem: loginItem,
             maintenance: maintenance,
             wallpaper: wallpaper,
+            saverInstaller: saverInstaller,
             dbPath: dbPath,
             defaultDBPath: defaultDBPath,
             defaults: defaults,
@@ -529,7 +531,8 @@ final class SettingsModelTests: XCTestCase {
         let vitals = VitalsController(defaults: defaults)
         let model = SettingsModel(
             translate: TranslateController(), vitals: vitals, backend: StubBackend(),
-            loginItem: StubLoginItem(), maintenance: FakeStore(), dbPath: dbPath,
+            loginItem: StubLoginItem(), maintenance: FakeStore(),
+            saverInstaller: NoopSaverInstaller(), dbPath: dbPath,
             defaultDBPath: defaultDBPath, defaults: defaults, bundleID: suiteName)
 
         var next = model.vitalsSettings
@@ -932,6 +935,23 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(model.status, "Đã chọn clip.mp4.")
     }
 
+    /// 🔑 `makeModel` KHÔNG được để `SettingsModel` rơi về `SaverVideoInstaller()`
+    /// mặc định: cái đó trỏ vào container THẬT, và `install` xoá mọi
+    /// `screensaver-video.*` đang nằm đó TRƯỚC khi copy — một test gọi
+    /// `setWallpaperVideo(URL(fileURLWithPath: "/tmp/clip.mp4"))` sẽ xoá video
+    /// screensaver thật của người dùng vào đúng ngày cái tên scratch ấy tình cờ
+    /// tồn tại. Phân biệt hai bên mà KHÔNG phải đụng container: installer thật
+    /// hỏi đĩa nên nguồn không tồn tại cho ra `.failed`, installer inert thì không.
+    func testTheTestHelperNeverWiresUpTheRealScreensaverContainer() async {
+        let model = makeModel(wallpaper: StubWallpaper())
+        let ghost = URL(fileURLWithPath: "/tmp/kurotools-ghost-\(UUID().uuidString).mp4")
+
+        await model.setWallpaperVideo(ghost).value
+
+        XCTAssertEqual(model.saverSyncStatus, .synced,
+                       "installer thật báo .failed(sourceMissing) ở đây — nghĩa là test đang trỏ vào container thật")
+    }
+
     func testRefreshRereadsWallpaperStateFromTheController() {
         let wallpaper = StubWallpaper()
         let model = makeModel(wallpaper: wallpaper)
@@ -950,14 +970,29 @@ private final class SpyInstaller: SaverVideoInstalling, @unchecked Sendable {
     private let lock = NSLock()
     private var _installed: [URL] = []
     private var _clears = 0
-    var errorToThrow: Error?
-    /// Chạy TRƯỚC khi ghi nhận lời gọi, trên thread nền của `Task.detached` —
-    /// chỗ test race chặn (và tự quyết định có ném lỗi hay không cho) một lời
-    /// gọi cụ thể, để dựng đúng ca "lời gọi TRƯỚC hoàn thành SAU lời gọi SAU".
-    var beforeInstall: ((URL) throws -> Void)?
+    private var _errorToThrow: Error?
+    private var _beforeInstall: ((URL) throws -> Void)?
 
     var installed: [URL] { lock.lock(); defer { lock.unlock() }; return _installed }
     var clears: Int { lock.lock(); defer { lock.unlock() }; return _clears }
+
+    /// Hai seam dưới đây được GHI từ main thread rồi ĐỌC từ thread nền của
+    /// `Task.detached`, nên phải đi qua cùng cái lock với phần ghi nhận lời gọi
+    /// — thực tế set xong mới dùng nên chưa hỏng, nhưng TSan tính đúng đây là
+    /// data race trong một type `@unchecked Sendable`.
+    var errorToThrow: Error? {
+        get { lock.lock(); defer { lock.unlock() }; return _errorToThrow }
+        set { lock.lock(); _errorToThrow = newValue; lock.unlock() }
+    }
+    /// Chạy TRƯỚC khi ghi nhận lời gọi, trên thread nền của `Task.detached` —
+    /// chỗ test race chặn (và tự quyết định có ném lỗi hay không cho) một lời
+    /// gọi cụ thể, để dựng đúng ca "lời gọi TRƯỚC hoàn thành SAU lời gọi SAU".
+    /// Đọc closure ra NGOÀI lock rồi mới gọi: closure của test chặn trên
+    /// semaphore, giữ lock trong lúc đó là tự khoá chết lời gọi thứ hai.
+    var beforeInstall: ((URL) throws -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return _beforeInstall }
+        set { lock.lock(); _beforeInstall = newValue; lock.unlock() }
+    }
 
     @discardableResult
     func install(_ source: URL) throws -> URL {
@@ -982,6 +1017,25 @@ final class SettingsModelSaverSyncTests: XCTestCase {
             defaults: defaults,
             bundleID: "com.kurovu146.kurotools.tests",
             saverInstaller: installer)
+    }
+
+    /// Cùng cái bẫy với `testTheTestHelperNeverWiresUpTheRealScreensaverContainer`,
+    /// nhưng cho cổng còn lại: `forTesting` không truyền installer thì phải ra
+    /// `NoopSaverInstaller`, không phải container của máy.
+    func testTheTestingFactoryDefaultsToAnInertInstaller() async {
+        let suite = "kurotools.saver.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = SettingsModel.forTesting(
+            loginItem: StubLoginItem(),
+            defaults: defaults,
+            bundleID: "com.kurovu146.kurotools.tests")
+
+        await model.setWallpaperVideo(
+            URL(fileURLWithPath: "/tmp/kurotools-ghost-\(UUID().uuidString).mp4")).value
+
+        XCTAssertEqual(model.saverSyncStatus, .synced,
+                       "installer thật báo .failed(sourceMissing) ở đây — nghĩa là test đang trỏ vào container thật")
     }
 
     func testChoosingAVideoCopiesItForTheScreensaver() async {

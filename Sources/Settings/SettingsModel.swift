@@ -163,7 +163,7 @@ public final class SettingsModel: ObservableObject {
         loginItem: LoginItemControlling,
         maintenance: StoreMaintaining? = nil,
         wallpaper: WallpaperControlling? = nil,
-        saverInstaller: SaverVideoInstalling? = nil,
+        saverInstaller: SaverVideoInstalling,
         dbPath: URL,
         defaultDBPath: URL = DatabaseMigration.defaultDatabasePath(
             appSupport: DatabaseMigration.defaultAppSupport()),
@@ -179,7 +179,12 @@ public final class SettingsModel: ObservableObject {
         // mặc định chạy ở ngữ cảnh nonisolated, mà `NoopWallpaper.init` là
         // `@MainActor` (cùng ca với `TranslateController` bên dưới).
         self.wallpaper = wallpaper ?? NoopWallpaper()
-        self.saverInstaller = saverInstaller ?? SaverVideoInstaller()
+        // KHÔNG có default `?? SaverVideoInstaller()` như `wallpaper` ở trên:
+        // fallback của wallpaper là inert, còn fallback của installer trỏ vào
+        // container THẬT của máy và `install` XOÁ những gì đang nằm đó. Bắt
+        // buộc truyền vào là cách duy nhất chặn một test quên tiêm seam rồi
+        // xoá video screensaver thật của người dùng.
+        self.saverInstaller = saverInstaller
         self.dbPath = dbPath
         self.defaultDBPath = defaultDBPath
         self.defaults = defaults
@@ -608,7 +613,7 @@ extension SettingsModel {
         defaults: UserDefaults,
         bundleID: String,
         wallpaper: WallpaperControlling? = nil,
-        saverInstaller: SaverVideoInstalling? = nil
+        saverInstaller: SaverVideoInstalling = NoopSaverInstaller()
     ) -> SettingsModel {
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString)

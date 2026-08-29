@@ -38,6 +38,19 @@ public protocol SaverVideoInstalling: Sendable {
     func clear() throws
 }
 
+/// Installer không làm gì, dành cho test không quan tâm tới cây cầu sang
+/// screensaver. Tồn tại để `SettingsModel` KHÔNG bao giờ phải rơi về
+/// `SaverVideoInstaller()` mặc định: cái đó trỏ vào container THẬT, và một test
+/// gọi `setWallpaperVideo` với đường dẫn scratch tình cờ tồn tại sẽ xoá video
+/// screensaver thật của người dùng. Cùng lý do với `NoopWallpaper`.
+public struct NoopSaverInstaller: SaverVideoInstalling {
+    public init() {}
+
+    @discardableResult
+    public func install(_ source: URL) throws -> URL { source }
+    public func clear() throws {}
+}
+
 /// Chỉ giữ một `URL` nên nó `Sendable` tự nhiên — quan trọng, vì `SettingsModel`
 /// đẩy `install` sang thread nền (video vài trăm MB không được chặn UI).
 /// `FileManager` dựng mới trong từng hàm theo khuyến nghị của Apple cho code
