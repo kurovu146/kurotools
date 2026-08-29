@@ -126,6 +126,22 @@ public struct GeneralTab: View {
 
     // MARK: - Hình nền video
 
+    private var saverStatusText: String {
+        switch model.saverSyncStatus {
+        case .idle: return "Screensaver: chưa có video"
+        case .syncing: return "Screensaver: đang chuẩn bị…"
+        case .synced: return "Screensaver: đã đồng bộ"
+        case .failed(let reason): return "Screensaver: lỗi — \(reason)"
+        }
+    }
+
+    /// Cùng kiểu với `openLoginItemsSettings()` ở trên.
+    private func openScreenSaverSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.ScreenSaver-Settings.extension")
+        else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     private var wallpaperSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Hình nền video").font(.system(size: 13, weight: .semibold))
@@ -150,6 +166,23 @@ public struct GeneralTab: View {
                 }
             }
             Text("Video chạy sau icons trên desktop, tắt tiếng, lặp vô hạn — bật/tắt nhanh qua menu bar (K ▸ Hình nền video).")
+                .font(.system(size: 11))
+                .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider().padding(.vertical, 2)
+
+            HStack(spacing: 8) {
+                Text(saverStatusText)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button("Mở cài đặt Screen Saver") { openScreenSaverSettings() }
+                    .font(.system(size: 11))
+            }
+            Text("""
+Cùng video này chạy làm screensaver. Lần đầu phải cài bundle bằng ./scripts/install-saver.sh, rồi chọn "KuroTools Video" trong System Settings ▸ Screen Saver.
+""")
                 .font(.system(size: 11))
                 .foregroundColor(Color(nsColor: .tertiaryLabelColor))
                 .fixedSize(horizontal: false, vertical: true)

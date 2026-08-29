@@ -1,12 +1,14 @@
 import Foundation
 
-/// Cấu hình "hình nền video" + screensaver video, dùng chung giữa app và
-/// screensaver bundle.
+/// Cấu hình "hình nền video" của APP. Chỉ app đọc/ghi nó.
 ///
-/// Hai tiến trình KHÁC NHAU đọc nó: `KuroTools.app` (người ghi) và
-/// `KuroToolsWallpaper.saver` chạy trong ScreenSaverEngine (người đọc). Cả hai
-/// đều không sandbox, nên một `UserDefaults(suiteName:)` bình thường — tức một
-/// file plist trong `~/Library/Preferences` — là đủ; không cần app group.
+/// KHÔNG dùng file này để nói chuyện với screensaver. Screensaver bên thứ ba
+/// chạy trong `legacyScreenSaver` và BỊ SANDBOX: đo trên máy 2026-08-29, cùng
+/// một suite name cho ra hai file plist khác nhau —
+/// `~/Library/Preferences/com.kurovu146.kurotools.wallpaper.plist` của app và
+/// một bản riêng trong `~/Library/Containers/…legacyScreenSaver/Data/…`. Cây
+/// cầu sang screensaver là một FILE VIDEO trong container, xem
+/// `SaverVideoInstaller` / `SaverVideoLocator`.
 public struct WallpaperSettings: Equatable {
     public var videoURL: URL?
     public var enabled: Bool
