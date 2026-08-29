@@ -48,9 +48,13 @@ public final class KTWallpaperSaverView: ScreenSaverView {
     /// hiện trong ô preview của System Settings trước lần chọn đầu tiên — màn
     /// hình trắng trơn ở đó không nói cho ai biết phải làm gì.
     public override func draw(_ rect: NSRect) {
-        guard playerLayer == nil else { return }
+        // Tô đen TRƯỚC khi rẽ nhánh, kể cả khi đã có player: `AVPlayerLayer` là
+        // sublayer nên nó che backing store của view CHỨ KHÔNG lấp nó, và
+        // trong khoảng trước frame đầu tiên cái backing store ấy chưa được
+        // định nghĩa. Đây là nền, không phải thứ vẽ đè lên video.
         NSColor.black.setFill()
         rect.fill()
+        guard playerLayer == nil else { return }
 
         let text = "KuroTools — chọn video trong Settings ▸ Chung"
         let size = max(14, bounds.height * 0.03)
