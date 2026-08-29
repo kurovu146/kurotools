@@ -34,6 +34,10 @@ public final class VideoWallpaperController: WallpaperControlling {
         let window: NSWindow
         let player: AVQueuePlayer
         let looper: AVPlayerLooper
+        /// `NSScreen.frame` lúc dựng — cần để hỏi riêng cho TỪNG màn hình
+        /// "màn này có đang bị che không".
+        let screenFrame: CGRect
+        var isPlaying: Bool
     }
 
     private let store: WallpaperSettingsStore
@@ -42,6 +46,11 @@ public final class VideoWallpaperController: WallpaperControlling {
     /// nhịp giữa chừng dù màn hình vẫn bật. KHÔNG chống idle sleep: máy vẫn
     /// ngủ bình thường, chỉ là lúc đang thức video phải chạy đều.
     private var napToken: NSObjectProtocol?
+    /// Poll thay vì notification: `NSWindow.occlusionState` không dùng được ở
+    /// desktop level (xem `PlaybackGate`), và nguồn điện thì gộp luôn vào đây
+    /// cho đỡ một cơ chế nữa. 2s đủ nhạy mà rẻ hơn nhiều so với decode video.
+    private var pollTimer: Timer?
+    private static let pollSeconds: TimeInterval = 2
 
     public private(set) var isEnabled: Bool
     public private(set) var videoURL: URL?
@@ -58,6 +67,7 @@ public final class VideoWallpaperController: WallpaperControlling {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        pollTimer?.invalidate()
         for w in windows { w.player.pause() }
     }
 
@@ -86,11 +96,15 @@ public final class VideoWallpaperController: WallpaperControlling {
         teardownWindows()
         guard isEnabled, let url = videoURL,
               FileManager.default.fileExists(atPath: url.path) else {
+            stopPolling()
             endNapPrevention()
             return
         }
         buildWindows(url: url)
-        beginNapPrevention()
+        startPolling()
+        // Đặt trạng thái đúng NGAY, không đợi tick đầu — nếu không thì mỗi lần
+        // đổi video sẽ phát 2 giây rồi mới dừng dù đang bị che hoặc chạy pin.
+        updatePlayback()
     }
 
     private func buildWindows(url: URL) {
@@ -124,12 +138,15 @@ public final class VideoWallpaperController: WallpaperControlling {
             window.contentView = content
             window.orderFrontRegardless()
 
-            player.play()
-            windows.append(WallpaperWindow(window: window, player: player, looper: looper))
+            // KHÔNG play ở đây: `updatePlayback()` ngay sau `buildWindows`
+            // mới là chỗ quyết định, tránh nháy một nhịp rồi dừng.
+            windows.append(WallpaperWindow(window: window, player: player, looper: looper,
+                                           screenFrame: screen.frame, isPlaying: false))
         }
     }
 
     private func teardownWindows() {
+        stopPolling()
         for w in windows {
             w.player.pause()
             w.looper.disableLooping()
@@ -137,6 +154,54 @@ public final class VideoWallpaperController: WallpaperControlling {
             w.window.contentView = nil
         }
         windows = []
+    }
+
+    // MARK: - Tạm dừng khi không ai nhìn / khi chạy pin
+
+    private func startPolling() {
+        guard pollTimer == nil else { return }
+        let t = Timer(timeInterval: Self.pollSeconds, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updatePlayback() }
+        }
+        t.tolerance = Self.pollSeconds * 0.5
+        RunLoop.main.add(t, forMode: .common)
+        pollTimer = t
+    }
+
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    /// Một lượt đo: màn nào đang bị che, máy có đang chạy pin. Chỉ gọi
+    /// `play()`/`pause()` khi trạng thái THỰC SỰ đổi.
+    private func updatePlayback() {
+        guard !windows.isEmpty else { return }
+        let onBattery = PlaybackGate.isOnBattery(
+            powerSourceType: PlaybackGate.currentPowerSourceType())
+        let infos = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        let onScreen = PlaybackGate.parse(infos)
+        let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
+        let wallpaperLayer = Int(CGWindowLevelForKey(.desktopWindow))
+
+        var anyPlaying = false
+        for i in windows.indices {
+            let covered = PlaybackGate.isCovered(
+                onScreen,
+                screenFrame: PlaybackGate.flip(windows[i].screenFrame, primaryTop: primaryTop),
+                aboveLayer: wallpaperLayer)
+            let want = PlaybackGate.shouldPlay(enabled: isEnabled, hasVideo: videoURL != nil,
+                                               covered: covered, onBattery: onBattery)
+            if want != windows[i].isPlaying {
+                if want { windows[i].player.play() } else { windows[i].player.pause() }
+                windows[i].isPlaying = want
+            }
+            anyPlaying = anyPlaying || want
+        }
+        // Không phát thì không giữ máy thức hộ ai.
+        if anyPlaying { beginNapPrevention() } else { endNapPrevention() }
     }
 
     private func beginNapPrevention() {
