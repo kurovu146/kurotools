@@ -1005,6 +1005,16 @@ private final class SpyInstaller: SaverVideoInstalling, @unchecked Sendable {
     func clear() throws {
         lock.lock(); _clears += 1; lock.unlock()
     }
+
+    /// Đứng thay cho nội dung THẬT của container. Test đặt sẵn giá trị để dựng
+    /// ca "mở lại app khi container đã có video từ phiên trước".
+    private var _existingVideo: URL?
+    var existingVideo: URL? {
+        get { lock.lock(); defer { lock.unlock() }; return _existingVideo }
+        set { lock.lock(); _existingVideo = newValue; lock.unlock() }
+    }
+
+    func installedVideo() -> URL? { existingVideo }
 }
 
 @MainActor
@@ -1036,6 +1046,75 @@ final class SettingsModelSaverSyncTests: XCTestCase {
 
         XCTAssertEqual(model.saverSyncStatus, .synced,
                        "installer thật báo .failed(sourceMissing) ở đây — nghĩa là test đang trỏ vào container thật")
+    }
+
+    /// 🔑 Mở lại app khi container ĐÃ có video từ phiên trước. Bản trước khởi
+    /// tạo `.idle` và không đọc lại bao giờ, nên Settings ▸ Chung báo
+    /// "Screensaver: chưa có video" trong khi screensaver vẫn đang phát nó.
+    func testTheStatusReflectsAVideoAlreadyInTheContainerAtLaunch() {
+        let spy = SpyInstaller()
+        spy.existingVideo = URL(fileURLWithPath: "/tmp/screensaver-video.mp4")
+
+        let model = makeModel(installer: spy)
+
+        XCTAssertEqual(model.saverSyncStatus, .synced,
+                       "container có video mà UI báo chưa có là nói dối, và nó bắt người dùng chọn lại vô ích")
+    }
+
+    func testTheStatusIsIdleWhenTheContainerIsEmptyAtLaunch() {
+        XCTAssertEqual(makeModel(installer: SpyInstaller()).saverSyncStatus, .idle)
+    }
+
+    /// Container có thể đổi sau lưng cửa sổ (uninstall script xoá, một phiên
+    /// khác cài) — `refreshFromSystem` chạy mỗi lần cửa sổ hiện, đúng chỗ đọc lại.
+    func testRefreshRereadsTheContainerInsteadOfTrustingMemory() {
+        let spy = SpyInstaller()
+        let model = makeModel(installer: spy)
+        XCTAssertEqual(model.saverSyncStatus, .idle)
+
+        spy.existingVideo = URL(fileURLWithPath: "/tmp/screensaver-video.mp4")
+        model.refreshFromSystem()
+        XCTAssertEqual(model.saverSyncStatus, .synced)
+
+        spy.existingVideo = nil
+        model.refreshFromSystem()
+        XCTAssertEqual(model.saverSyncStatus, .idle, "video bị xoá khỏi container thì UI phải theo")
+    }
+
+    /// Một lần copy đang chạy làm chủ trạng thái: đọc lại chen ngang sẽ nhìn
+    /// thấy video CŨ và hạ `.syncing` xuống `.synced` trước khi copy xong.
+    func testRefreshDoesNotOverwriteASyncInFlight() async {
+        let spy = SpyInstaller()
+        spy.existingVideo = URL(fileURLWithPath: "/tmp/screensaver-video.mp4")
+        let model = makeModel(installer: spy)
+
+        let release = DispatchSemaphore(value: 0)
+        spy.beforeInstall = { _ in release.wait() }
+        let task = model.setWallpaperVideo(URL(fileURLWithPath: "/tmp/moi.mp4"))
+
+        model.refreshFromSystem()
+        XCTAssertEqual(model.saverSyncStatus, .syncing,
+                       "đang copy dở mà báo 'đã đồng bộ' là nói về video CŨ")
+
+        release.signal()
+        await task.value
+        XCTAssertEqual(model.saverSyncStatus, .synced)
+    }
+
+    /// Lỗi chưa được xử lý không được biến mất chỉ vì người dùng mở lại cửa sổ:
+    /// container vẫn giữ video CŨ, nên đọc thô sẽ ra `.synced` và nuốt mất lỗi.
+    func testRefreshKeepsAFailureTheUserHasNotActedOn() async {
+        let spy = SpyInstaller()
+        spy.existingVideo = URL(fileURLWithPath: "/tmp/screensaver-video.mp4")
+        spy.errorToThrow = SaverVideoInstallError.sourceMissing(URL(fileURLWithPath: "/tmp/x.mp4"))
+        let model = makeModel(installer: spy)
+
+        await model.setWallpaperVideo(URL(fileURLWithPath: "/tmp/x.mp4")).value
+        model.refreshFromSystem()
+
+        guard case .failed = model.saverSyncStatus else {
+            return XCTFail("mở lại cửa sổ không được xoá một lỗi copy chưa ai xử lý")
+        }
     }
 
     func testChoosingAVideoCopiesItForTheScreensaver() async {

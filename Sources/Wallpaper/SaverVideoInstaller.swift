@@ -55,6 +55,10 @@ public protocol SaverVideoInstalling: Sendable {
     @discardableResult
     func install(_ source: URL) throws -> URL
     func clear() throws
+    /// Video ĐANG thật sự nằm trong container, `nil` nếu không có. Nằm trên
+    /// protocol chứ không chỉ trên struct cụ thể vì đây là đường DUY NHẤT để
+    /// `SettingsModel` hỏi trạng thái thật thay vì tin vào thứ nó nhớ.
+    func installedVideo() -> URL?
 }
 
 /// Installer không làm gì, dành cho test không quan tâm tới cây cầu sang
@@ -68,6 +72,7 @@ public struct NoopSaverInstaller: SaverVideoInstalling {
     @discardableResult
     public func install(_ source: URL) throws -> URL { source }
     public func clear() throws {}
+    public func installedVideo() -> URL? { nil }
 }
 
 /// Chỉ giữ một `URL` nên nó `Sendable` tự nhiên — quan trọng, vì `SettingsModel`

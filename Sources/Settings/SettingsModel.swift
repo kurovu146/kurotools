@@ -196,6 +196,7 @@ public final class SettingsModel: ObservableObject {
         vitalsSettings = vitals.currentSettings
         wallpaperEnabled = self.wallpaper.isEnabled
         wallpaperVideoURL = self.wallpaper.videoURL
+        refreshSaverStatus()
     }
 
     /// Đọc lại mọi thứ có thể đã đổi sau lưng cửa sổ này: login item bị tắt
@@ -217,6 +218,29 @@ public final class SettingsModel: ObservableObject {
         langConfig = backend.langConfig()
         wallpaperEnabled = wallpaper.isEnabled
         wallpaperVideoURL = wallpaper.videoURL
+        refreshSaverStatus()
+    }
+
+    /// Trạng thái screensaver phải là thứ ĐO ĐƯỢC trong container, không phải
+    /// thứ model nhớ từ lần chọn video gần nhất. Thiếu bước này, thoát app rồi
+    /// mở lại luôn hiện "Screensaver: chưa có video" trong khi container vẫn
+    /// giữ file và screensaver vẫn chạy ngon — UI nói sai, và nó đẩy người dùng
+    /// đi chọn lại một video không cần chọn lại.
+    ///
+    /// Cũng vá luôn ca `try? installer.clear()` nuốt lỗi: xoá hỏng thì lần đọc
+    /// sau nói đúng rằng video vẫn còn nằm đó.
+    private func refreshSaverStatus() {
+        switch saverSyncStatus {
+        // Task đang chạy làm chủ trạng thái và sẽ ghi lời cuối — đọc chen vào
+        // giữa chỉ để bị nó ghi đè ngay sau đó.
+        case .syncing: return
+        // Container còn video CŨ nên đọc thô sẽ ra `.synced`, tức là xoá một
+        // lỗi mà người dùng chưa hề thấy đã xử lý. Lần chọn video kế tiếp mới
+        // được quyền dọn nó.
+        case .failed: return
+        case .idle, .synced: break
+        }
+        saverSyncStatus = saverInstaller.installedVideo() == nil ? .idle : .synced
     }
 
     // MARK: - Phím tắt
