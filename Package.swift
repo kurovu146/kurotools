@@ -70,5 +70,6 @@ let package = Package(
         .testTarget(name: "TranslateTests", dependencies: ["Translate", "TestSupport"]),
         .testTarget(name: "SettingsTests", dependencies: ["Settings", "TestSupport"]),
         .testTarget(name: "WallpaperTests", dependencies: ["Wallpaper", "WallpaperSaver"]),
+        .testTarget(name: "KuroToolsTests", dependencies: ["KuroTools", "Wallpaper"]),
     ]
 )
