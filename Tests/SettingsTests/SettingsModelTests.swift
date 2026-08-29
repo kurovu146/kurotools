@@ -944,3 +944,72 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(model.wallpaperVideoURL, wallpaper.videoURL)
     }
 }
+
+/// Installer giả: ghi lại lời gọi thay vì đụng container thật.
+private final class SpyInstaller: SaverVideoInstalling, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _installed: [URL] = []
+    private var _clears = 0
+    var errorToThrow: Error?
+
+    var installed: [URL] { lock.lock(); defer { lock.unlock() }; return _installed }
+    var clears: Int { lock.lock(); defer { lock.unlock() }; return _clears }
+
+    @discardableResult
+    func install(_ source: URL) throws -> URL {
+        if let errorToThrow { throw errorToThrow }
+        lock.lock(); _installed.append(source); lock.unlock()
+        return source
+    }
+
+    func clear() throws {
+        lock.lock(); _clears += 1; lock.unlock()
+    }
+}
+
+@MainActor
+final class SettingsModelSaverSyncTests: XCTestCase {
+    private func makeModel(installer: SaverVideoInstalling) -> SettingsModel {
+        let suite = "kurotools.saver.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        return SettingsModel.forTesting(
+            loginItem: StubLoginItem(),
+            defaults: defaults,
+            bundleID: "com.kurovu146.kurotools.tests",
+            saverInstaller: installer)
+    }
+
+    func testChoosingAVideoCopiesItForTheScreensaver() async {
+        let spy = SpyInstaller()
+        let model = makeModel(installer: spy)
+        let url = URL(fileURLWithPath: "/tmp/clip.mp4")
+
+        await model.setWallpaperVideo(url).value
+
+        XCTAssertEqual(spy.installed, [url])
+        XCTAssertEqual(model.saverSyncStatus, .synced)
+    }
+
+    func testClearingTheVideoAlsoClearsTheScreensaverCopy() async {
+        let spy = SpyInstaller()
+        let model = makeModel(installer: spy)
+
+        await model.setWallpaperVideo(nil).value
+
+        XCTAssertEqual(spy.clears, 1)
+        XCTAssertEqual(model.saverSyncStatus, .idle,
+                       "bỏ video thì screensaver quay về trạng thái chưa có gì")
+    }
+
+    func testAFailedCopySurfacesInsteadOfPretendingItWorked() async {
+        let spy = SpyInstaller()
+        spy.errorToThrow = SaverVideoInstallError.sourceMissing(URL(fileURLWithPath: "/tmp/x.mp4"))
+        let model = makeModel(installer: spy)
+
+        await model.setWallpaperVideo(URL(fileURLWithPath: "/tmp/x.mp4")).value
+
+        guard case .failed = model.saverSyncStatus else {
+            return XCTFail("copy hỏng mà UI vẫn báo đã đồng bộ là ca tệ nhất: screensaver phát video CŨ")
+        }
+    }
+}

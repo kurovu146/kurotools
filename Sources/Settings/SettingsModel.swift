@@ -71,6 +71,16 @@ public protocol TranslateControlling: AnyObject {
 
 extension TranslateController: TranslateControlling {}
 
+/// Trạng thái copy video sang container của screensaver. Tách khỏi `status`
+/// (chuỗi hiển thị) vì UI cần phân biệt "đang chạy" với "xong" — copy một video
+/// vài trăm MB không tức thời.
+public enum SaverSyncStatus: Equatable {
+    case idle
+    case syncing
+    case synced
+    case failed(String)
+}
+
 /// Trạng thái của cửa sổ Settings và mọi thao tác nó gây ra. Ba tab chỉ đọc và
 /// gọi vào đây; không tab nào tự chạm `UserDefaults`, `DataReset` hay
 /// `DataRelocation`.
@@ -82,6 +92,7 @@ public final class SettingsModel: ObservableObject {
     private let loginItem: LoginItemControlling
     private let maintenance: StoreMaintaining
     private let wallpaper: WallpaperControlling
+    private let saverInstaller: SaverVideoInstalling
     private let defaults: UserDefaults
     private let bundleID: String
     /// Chỗ db nằm khi không có override — `DataReset.perform(.everything, …)`
@@ -136,6 +147,7 @@ public final class SettingsModel: ObservableObject {
     /// (cửa sổ + AVPlayer thật) không được phép sống trong test.
     @Published public private(set) var wallpaperEnabled: Bool
     @Published public private(set) var wallpaperVideoURL: URL?
+    @Published public private(set) var saverSyncStatus: SaverSyncStatus = .idle
 
     public var dbDirectory: URL { dbPath.deletingLastPathComponent() }
 
@@ -151,6 +163,7 @@ public final class SettingsModel: ObservableObject {
         loginItem: LoginItemControlling,
         maintenance: StoreMaintaining? = nil,
         wallpaper: WallpaperControlling? = nil,
+        saverInstaller: SaverVideoInstalling? = nil,
         dbPath: URL,
         defaultDBPath: URL = DatabaseMigration.defaultDatabasePath(
             appSupport: DatabaseMigration.defaultAppSupport()),
@@ -166,6 +179,7 @@ public final class SettingsModel: ObservableObject {
         // mặc định chạy ở ngữ cảnh nonisolated, mà `NoopWallpaper.init` là
         // `@MainActor` (cùng ca với `TranslateController` bên dưới).
         self.wallpaper = wallpaper ?? NoopWallpaper()
+        self.saverInstaller = saverInstaller ?? SaverVideoInstaller()
         self.dbPath = dbPath
         self.defaultDBPath = defaultDBPath
         self.defaults = defaults
@@ -263,11 +277,38 @@ public final class SettingsModel: ObservableObject {
             : (on ? "Đã bật hình nền video." : "Đã tắt hình nền video.")
     }
 
-    public func setWallpaperVideo(_ url: URL?) {
+    /// Trả về `Task` để test `await` được — copy chạy ngoài main thread, và một
+    /// test đọc `saverSyncStatus` ngay sau lời gọi sẽ đọc trúng `.syncing`.
+    @discardableResult
+    public func setWallpaperVideo(_ url: URL?) -> Task<Void, Never> {
         wallpaper.setVideo(url)
         wallpaperEnabled = wallpaper.isEnabled
         wallpaperVideoURL = wallpaper.videoURL
         status = url.map { "Đã chọn \($0.lastPathComponent)." } ?? "Đã bỏ video."
+        return syncSaverVideo(url)
+    }
+
+    private func syncSaverVideo(_ url: URL?) -> Task<Void, Never> {
+        let installer = saverInstaller
+        guard let url else {
+            saverSyncStatus = .idle
+            return Task { await Task.detached { try? installer.clear() }.value }
+        }
+        saverSyncStatus = .syncing
+        return Task { [weak self] in
+            // Video vài trăm MB: copy trên main thread làm treo cửa sổ Settings.
+            let failure: String? = await Task.detached {
+                do {
+                    try installer.install(url)
+                    return nil
+                } catch {
+                    return error.localizedDescription
+                }
+            }.value
+            guard let self else { return }
+            let next: SaverSyncStatus = failure.map { .failed($0) } ?? .synced
+            self.saverSyncStatus = next
+        }
     }
 
     // MARK: - Đổi chỗ db
@@ -537,7 +578,8 @@ extension SettingsModel {
         loginItem: LoginItemControlling,
         defaults: UserDefaults,
         bundleID: String,
-        wallpaper: WallpaperControlling? = nil
+        wallpaper: WallpaperControlling? = nil,
+        saverInstaller: SaverVideoInstalling? = nil
     ) -> SettingsModel {
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString)
@@ -547,6 +589,7 @@ extension SettingsModel {
             backend: InertBackend(),
             loginItem: loginItem,
             wallpaper: wallpaper,
+            saverInstaller: saverInstaller,
             dbPath: tmp.appendingPathComponent(DatabaseMigration.databaseName),
             defaultDBPath: tmp.appendingPathComponent(DatabaseMigration.databaseName),
             defaults: defaults,
