@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: macos-15  # Apple Silicon — miễn phí cho repo public
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Ghi lại phiên bản toolchain
         run: |
@@ -54,7 +54,7 @@ jobs:
           codesign --verify --strict --verbose=2 "/tmp/verify/${{ steps.pack.outputs.stage }}/KuroTools.app"
           test -x "/tmp/verify/${{ steps.pack.outputs.stage }}/kurovitals-helper"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.pack.outputs.stage }}
           path: ${{ steps.pack.outputs.stage }}.zip
