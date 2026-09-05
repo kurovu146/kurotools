@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:   # chạy thử: vẫn build và đóng gói, nhưng KHÔNG tạo Release
+
+permissions:
+  contents: write      # gh release create
+
+jobs:
+  build:
+    runs-on: macos-15  # Apple Silicon — miễn phí cho repo public
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ghi lại phiên bản toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+          cargo --version || { echo "::error::runner không có Rust; app cần cargo cho Translate core"; exit 1; }
+
+      - name: Build và đóng gói bundle
+        run: |
+          ./scripts/build-release.sh
+          ./scripts/bundle-app.sh      # không có .signing-identity trên runner → ký ad-hoc
+          ./scripts/bundle-saver.sh
+
+      - name: Chữ ký phải hợp lệ trước khi nén
+        run: |
+          codesign --verify --strict --verbose=2 KuroTools.app
+          codesign --verify --strict --verbose=2 KuroToolsWallpaper.saver
+
+      - name: Dựng gói phát hành
+        id: pack
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="dev-${GITHUB_SHA:0:7}"; fi
+          STAGE="KuroTools-${VERSION}-arm64"
+          mkdir -p "$STAGE"
+          cp -R KuroTools.app KuroToolsWallpaper.saver "$STAGE/"
+          cp .build/release/kurovitals-helper "$STAGE/"
+          cp scripts/install-helper.sh scripts/install-saver.sh \
+             scripts/uninstall-helper.sh scripts/uninstall-app.sh "$STAGE/"
+          cp packaging/README.txt "$STAGE/README.txt"
+          # ditto, không phải `zip`: chỉ ditto giữ nguyên cấu trúc bundle và chữ
+          # ký. Nén bằng zip thường làm hỏng chữ ký và app mở ra là "damaged".
+          ditto -c -k --keepParent "$STAGE" "$STAGE.zip"
+          echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Giải nén lại và kiểm tra chữ ký còn sống
+        run: |
+          rm -rf /tmp/verify && mkdir -p /tmp/verify
+          ditto -x -k "${{ steps.pack.outputs.stage }}.zip" /tmp/verify
+          codesign --verify --strict --verbose=2 "/tmp/verify/${{ steps.pack.outputs.stage }}/KuroTools.app"
+          test -x "/tmp/verify/${{ steps.pack.outputs.stage }}/kurovitals-helper"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pack.outputs.stage }}
+          path: ${{ steps.pack.outputs.stage }}.zip
+
+      - name: Tạo Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "KuroTools $GITHUB_REF_NAME" \
+            --notes-file packaging/release-notes.md \
+            "${{ steps.pack.outputs.stage }}.zip"

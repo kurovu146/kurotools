@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
-BIN=.build/release/kurovitals-helper
-[ -f "$BIN" ] || { echo "Run scripts/build-release.sh first"; exit 1; }
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# Script này chạy ở HAI nơi: trong repo (binary ở .build/release sau khi build)
+# và trong gói tải về, nơi binary nằm ngay cạnh nó và không có mã nguồn nào cả.
+# Bản trước chỉ biết đường dẫn repo, nên trong gói phát hành nó sẽ bảo người ta
+# "chạy build-release.sh trước" — một script không tồn tại trên máy họ.
+BIN=""
+for candidate in "$HERE/kurovitals-helper" "$HERE/../.build/release/kurovitals-helper"; do
+  if [ -f "$candidate" ]; then BIN="$candidate"; break; fi
+done
+if [ -z "$BIN" ]; then
+  echo "Không tìm thấy kurovitals-helper — cạnh script này, hoặc trong .build/release"
+  echo "sau khi chạy scripts/build-release.sh."
+  exit 1
+fi
 
 # /usr/local/libexec doesn't exist by default on Apple Silicon — create it first.
 sudo mkdir -p /usr/local/libexec

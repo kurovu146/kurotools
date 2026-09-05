@@ -10,3 +10,5 @@ crates/target/
 *.app
 *.saver
 .signing-identity
+KuroTools-*-arm64/
+KuroTools-*.zip

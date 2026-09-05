@@ -53,6 +53,12 @@ K  ▾
 
 ## Install
 
+**Bản build sẵn** (Apple Silicon, macOS 13+): tải `.zip` ở
+[Releases](https://github.com/kurovu146/kurotools/releases), giải nén, kéo `KuroTools.app` vào
+`/Applications`. Bản đó ký ad-hoc chứ không notarize, nên lần mở đầu phải qua *System Settings ▸
+Privacy & Security ▸ Open Anyway* — `packaging/README.txt` đi kèm gói nói rõ vì sao và cài helper
+thế nào. Muốn tự build thì tiếp tục bên dưới.
+
 ```bash
 git clone https://github.com/kurovu146/kurotools.git
 cd kurotools
