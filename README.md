@@ -227,6 +227,13 @@ rpm, TTL 1..60 s — and every forced speed carries a deadline. The helper rever
 its TTL expires, when the app stops sending heartbeats, on SIGTERM/SIGINT, and on its own startup.
 A caller cannot pin a fan low and walk away.
 
+*What happens on hardware nobody verified.* Fan control leans on reverse-engineered SMC keys and
+was only ever measured on an M2 Pro. `controllableFans()` makes every fan prove itself by reading
+`F{i}Mx` — a machine whose SMC does not answer, or answers with a 0 ceiling, reports no fans, and
+the menu drops the fan controls entirely and says why. `FNum` is treated as a hint about how far to
+probe, never as the truth: it defaults to 1 when the read fails, which is how a fanless MacBook Air
+used to end up advertising "Quạt 1: 0 rpm" with a preset range of 0..0.
+
 *Where the lookup sends your text.* `crates/ktranslate-core/src/provider/gtx.rs` calls the free
 `translate.googleapis.com/translate_a/single` endpoint with the selected text and a language pair —
 no API key, no account, nothing else about you. That endpoint is undocumented and is not an

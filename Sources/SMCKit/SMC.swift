@@ -5,6 +5,31 @@ public protocol SMCReading {
     func allKeys() throws -> [SMCKey]
 }
 
+public extension SMCReading {
+    /// Những quạt THẬT SỰ điều khiển được, kèm trần RPM đã đọc sẵn.
+    ///
+    /// Một quạt tự chứng minh bằng đúng một điều kiện: `F{i}Mx` đọc được và lớn
+    /// hơn 0. Trần RPM là thứ duy nhất khiến quạt có nghĩa — không có nó thì
+    /// không dựng được preset nào và "Max" nghĩa là 0 vòng/phút.
+    ///
+    /// Không hỏi `fanCount()` làm nguồn sự thật vì FNum nói dối theo hai hướng:
+    /// đọc lỗi thì nó khai 1 (máy không quạt hiện ra "Quạt 1: 0 rpm" với dải
+    /// preset 0..0), còn khai thừa thì fan không tồn tại vẫn đọc ra 0 vì `try?`
+    /// biến `keyNotFound` thành nil rồi thành 0. FNum chỉ còn nói nên thử tới
+    /// đâu; đọc lỗi thì thử hết `maxProbe` để máy có quạt mà FNum hỏng vẫn dùng được.
+    ///
+    /// Trả kèm `maxRPM` để bên gọi khỏi đọc lại chính key vừa đọc — mỗi lần đọc
+    /// là một lệnh gọi IOKit.
+    func controllableFans(maxProbe: Int = 8) -> [(index: Int, maxRPM: Double)] {
+        let hinted = Int((try? read(SMCKey("FNum")))?.double ?? 0)
+        let probe = (hinted > 0 && hinted <= maxProbe) ? hinted : maxProbe
+        return (0..<probe).compactMap { i in
+            let max = (try? read(SMCKey("F\(i)Mx")))?.double ?? 0
+            return max > 0 ? (index: i, maxRPM: max) : nil
+        }
+    }
+}
+
 public enum SMCError: Error, Equatable {
     case driverNotFound
     case openFailed(kern_return_t)
@@ -75,10 +100,15 @@ public extension SMC {
     }
 
     /// Number of fans (SMC key "FNum", ui8). Clamped to 1...8; defaults to 1 on failure.
+    ///
+    /// ⚠️ Đây là LỜI KHAI của SMC, không phải sự thật đã kiểm chứng: nó mặc định
+    /// về 1 khi FNum đọc lỗi, nên trên máy không quạt nó vẫn khai có một cái.
+    /// Thứ quyết định có hiện điều khiển quạt hay không là `controllableFans()`.
     func fanCount() -> Int {
         let n = Int((try? read(SMCKey("FNum")))?.double ?? 1)
         return Swift.min(Swift.max(n, 1), 8)
     }
+
 
     /// F{fan}Md (ui8): 1 = forced/manual, 0 = auto.
     func setFanMode(fan: Int, forced: Bool) throws {

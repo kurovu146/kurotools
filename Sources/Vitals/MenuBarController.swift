@@ -173,7 +173,21 @@ public extension MenuBarController {
         }
 
         // ── 4. Separator + global fan controls ───────────────────────────────
+        // Không quạt nào điều khiển được (MacBook Air, hoặc máy mà SMC không trả
+        // lời key quạt — xem `controllableFans()`): bỏ HẲN mọi thứ ghi SMC thay vì
+        // để lại ba nút bấm-không-thấy-gì, và nói ra lý do. Im lặng bỏ mục đi thì
+        // người dùng chỉ thấy app thiếu tính năng mà không biết vì sao.
         menu.addItem(.separator())
+
+        guard !s.fans.isEmpty else {
+            let reason = NSMenuItem(title: "Máy này không có quạt điều khiển được",
+                                    action: nil, keyEquivalent: "")
+            reason.isEnabled = false
+            menu.addItem(reason)
+            addTail(menu: menu, target: target,
+                    showProcesses: showProcesses, openSettings: openSettings, quit: quit)
+            return
+        }
 
         func globalItem(_ title: String, _ sel: Selector) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: sel, keyEquivalent: "")
@@ -184,6 +198,18 @@ public extension MenuBarController {
         menu.addItem(globalItem("Quiet (min) tất cả", presetQuiet))
         menu.addItem(globalItem("Max tất cả", presetMax))
 
+        addTail(menu: menu, target: target,
+                showProcesses: showProcesses, openSettings: openSettings, quit: quit)
+    }
+
+    /// Đuôi menu chung cho cả hai nhánh (có quạt và không): tiến trình, Settings,
+    /// Quit. Tách ra vì nhánh "không có quạt" thoát sớm ở mục 4 nhưng vẫn phải
+    /// dựng đủ phần còn lại — chép đôi thì lần sau thêm mục mới sẽ quên một bên.
+    private func addTail(menu: NSMenu,
+                         target: AnyObject,
+                         showProcesses: Selector,
+                         openSettings: Selector,
+                         quit: Selector) {
         // ── 5. Separator ──────────────────────────────────────────────────────
         menu.addItem(.separator())
 

@@ -56,4 +56,60 @@ final class MenuBarControllerTests: XCTestCase {
                 "\"\(staleTitle)\" belonged to the removed submenu and must not appear top-level either")
         }
     }
+
+    private func populate(_ menu: NSMenu, fans: [FanReading], target: DummyTarget) {
+        MenuBarController().populate(
+            menu: menu,
+            snapshot: Snapshot(cpuTempC: 40, cpuLoadPct: 10, ramUsedGB: 4, ramTotalGB: 16, fans: fans),
+            settings: Settings(), target: target,
+            applyFanPreset: #selector(DummyTarget.applyFanPreset(_:)),
+            autoFan: #selector(DummyTarget.autoFan(_:)),
+            allAuto: #selector(DummyTarget.allAuto),
+            presetQuiet: #selector(DummyTarget.presetQuiet),
+            presetMax: #selector(DummyTarget.presetMax),
+            openSettings: #selector(DummyTarget.openSettings),
+            showProcesses: #selector(DummyTarget.showProcesses),
+            quit: #selector(DummyTarget.quit))
+    }
+
+    /// Máy không có quạt điều khiển được (MacBook Air, hoặc máy mà SMC không
+    /// trả lời key quạt). Bản trước vẫn dựng "Tất cả Auto / Quiet / Max" —
+    /// ba nút ghi SMC lên phần cứng không có thật, người dùng bấm mà không có
+    /// gì xảy ra và không biết vì sao.
+    func testMenuDropsEveryFanControlWhenNoFanIsControllable() {
+        let menu = NSMenu()
+        populate(menu, fans: [], target: DummyTarget())
+        let titles = menu.items.map(\.title)
+
+        for gone in ["Tất cả Auto", "Quiet (min) tất cả", "Max tất cả"] {
+            XCTAssertNil(menu.items.first { $0.title == gone },
+                "\"\(gone)\" ghi SMC nên không được xuất hiện khi không có quạt; menu: \(titles)")
+        }
+        XCTAssertNil(menu.items.first { $0.title.hasPrefix("Quạt ") },
+                     "không được dựng submenu quạt; menu: \(titles)")
+
+        // Phải NÓI vì sao, không im lặng bỏ mục đi.
+        guard let reason = menu.items.first(where: { $0.title.contains("không có quạt") }) else {
+            return XCTFail("thiếu dòng giải thích vì sao mất điều khiển quạt; menu: \(titles)")
+        }
+        XCTAssertFalse(reason.isEnabled, "dòng giải thích là thông tin, không bấm được")
+
+        // Phần không liên quan tới quạt vẫn phải còn nguyên.
+        XCTAssertNotNil(menu.items.first { $0.title == "Settings…" })
+        XCTAssertNotNil(menu.items.first { $0.title == "Tiến trình..." })
+    }
+
+    /// Mặt còn lại: có quạt thật thì không được "dọn" nhầm.
+    func testMenuKeepsFanControlsWhenAFanIsControllable() {
+        let menu = NSMenu()
+        let fan = FanReading(index: 0, rpm: 2400, target: 2400, min: 2317, max: 6800, forced: false)
+        populate(menu, fans: [fan], target: DummyTarget())
+        let titles = menu.items.map(\.title)
+
+        XCTAssertNotNil(menu.items.first { $0.title == "Tất cả Auto" }, "menu: \(titles)")
+        XCTAssertNotNil(menu.items.first { $0.title.hasPrefix("Quạt 1") }, "menu: \(titles)")
+        XCTAssertNil(menu.items.first { $0.title.contains("không có quạt") },
+                     "có quạt thì đừng hiện dòng báo không có; menu: \(titles)")
+    }
+
 }

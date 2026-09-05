@@ -11,15 +11,18 @@ import HelperProtocol
 //      the watchdog then nullified, causing the fan to never auto-revert (safety bug).
 final class Daemon {
     let smc: SMC
-    let fanCount: Int
+    /// Chỉ số các quạt đã tự chứng minh là có thật (`controllableFans`), không
+    /// phải 0..<FNum: FNum khai thừa thì daemon root sẽ lặp `setFanMode` lên
+    /// những fan không tồn tại, và một chỉ số nằm trong dải đó vẫn được nhận lệnh.
+    let fans: [Int]
     private var deadlines: [Int: Date] = [:]
     private let smcQueue = DispatchQueue(label: "com.kurovitals.smc")  // serial
 
     init() throws {
         smc = try SMC()
-        fanCount = smc.fanCount()
+        fans = smc.controllableFans().map(\.index)
         // Boot into known-safe Auto; a live GUI re-forces on its next heartbeat.
-        for f in 0..<fanCount { try? smc.setFanMode(fan: f, forced: false) }
+        for f in fans { try? smc.setFanMode(fan: f, forced: false) }
     }
 
     func handle(_ cmd: FanCommand) -> FanResponse {
@@ -29,13 +32,13 @@ final class Daemon {
 
         case .allAuto:
             return smcQueue.sync {
-                for f in 0..<fanCount { try? smc.setFanMode(fan: f, forced: false) }
+                for f in fans { try? smc.setFanMode(fan: f, forced: false) }
                 deadlines.removeAll()
                 return FanResponse(ok: true, message: "all auto")
             }
 
         case let .setAuto(fan):
-            guard fan >= 0, fan < fanCount else {
+            guard fans.contains(fan) else {
                 return FanResponse(ok: false, message: "invalid fan \(fan)")
             }
             return smcQueue.sync {
@@ -49,7 +52,7 @@ final class Daemon {
             }
 
         case let .setTarget(fan, rpm, ttl):
-            guard fan >= 0, fan < fanCount else {
+            guard fans.contains(fan) else {
                 return FanResponse(ok: false, message: "invalid fan \(fan)")
             }
             // Validate strictly — this daemon runs as root.
@@ -86,7 +89,7 @@ final class Daemon {
     // For signal handlers: revert synchronously so the caller can exit immediately.
     func revertNow() {
         smcQueue.sync {
-            for f in 0..<self.fanCount { try? self.smc.setFanMode(fan: f, forced: false) }
+            for f in self.fans { try? self.smc.setFanMode(fan: f, forced: false) }
         }
     }
 }

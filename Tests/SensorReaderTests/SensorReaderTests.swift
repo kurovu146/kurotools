@@ -151,4 +151,77 @@ final class SensorReaderTests: XCTestCase {
         XCTAssertEqual(s.fanRPM, 3000, accuracy: 0.5)
         XCTAssertFalse(s.fanForced)
     }
+
+    // MARK: - Máy lạ: quạt phải được XÁC THỰC, không phải suy ra từ FNum
+
+    private func fltValue(_ k: String, _ v: Double) -> SMCValue {
+        SMCValue(key: SMCKey(k), dataType: .flt,
+                 bytes: withUnsafeBytes(of: Float(v)) { Array($0) })
+    }
+
+    /// MacBook Air không có quạt: FNum không tồn tại và không có key F0*.
+    /// Cũ, `fanCount()` mặc định về 1 khi đọc FNum lỗi và `readDouble` biến key
+    /// thiếu thành 0, nên app quảng cáo "Quạt 1: 0 rpm" với dải preset 0..0 —
+    /// đó là số BỊA, tệ hơn hẳn số thiếu, và nó mời người dùng bấm vào một nút
+    /// ghi SMC lên phần cứng không có thật.
+    func testMachineWithNoFansReportsNoFansAtAll() {
+        let fake = FakeSMC()
+        fake.keys = [SMCKey("Tp01")]
+        fake.values = ["Tp01": fltValue("Tp01", 50)]
+
+        let r = SensorReader(smc: fake, cpu: CPULoadSampler(), mem: MemorySampler(),
+                             tempKeyPrefixes: ["Tp"])
+        let s = r.snapshot()
+
+        XCTAssertTrue(s.fans.isEmpty, "không đọc được key quạt nào thì phải báo KHÔNG có quạt, thấy: \(s.fans)")
+        XCTAssertEqual(s.fanRPM, 0, accuracy: 0.01)
+        XCTAssertFalse(s.fanForced)
+        // Phần còn lại vẫn phải chạy: thiếu quạt không được kéo đổ nhiệt độ.
+        XCTAssertEqual(s.cpuTempC, 50, accuracy: 0.01)
+    }
+
+    /// FNum nói 2, nhưng phần cứng chỉ trả lời cho fan 0. Tin FNum thì fan 1
+    /// hiện ra với mọi chỉ số bằng 0.
+    func testFanCountFromFNumIsTrimmedToTheFansThatActuallyAnswer() {
+        let fake = FakeSMC()
+        fake.keys = [SMCKey("Tp01")]
+        fake.values = [
+            "Tp01": fltValue("Tp01", 50),
+            "FNum": SMCValue(key: SMCKey("FNum"), dataType: .ui8, bytes: [2]),
+            "F0Ac": fltValue("F0Ac", 2400),
+            "F0Tg": fltValue("F0Tg", 2400),
+            "F0Mn": fltValue("F0Mn", 2317),
+            "F0Mx": fltValue("F0Mx", 6800),
+            "F0Md": SMCValue(key: SMCKey("F0Md"), dataType: .ui8, bytes: [0]),
+            // fan 1: không có key nào
+        ]
+
+        let r = SensorReader(smc: fake, cpu: CPULoadSampler(), mem: MemorySampler(),
+                             tempKeyPrefixes: ["Tp"])
+        let s = r.snapshot()
+
+        XCTAssertEqual(s.fans.count, 1, "chỉ fan 0 trả lời được, thấy: \(s.fans)")
+        XCTAssertEqual(s.fans[0].rpm, 2400, accuracy: 0.5)
+    }
+
+    /// Key có mặt nhưng dải RPM tối đa bằng 0: không có preset nào dựng được từ
+    /// dải đó, và "Max" sẽ nghĩa là 0 vòng/phút. Coi như quạt không điều khiển được.
+    func testFanWithNoUsableRPMRangeIsDropped() {
+        let fake = FakeSMC()
+        fake.keys = [SMCKey("Tp01")]
+        fake.values = [
+            "Tp01": fltValue("Tp01", 50),
+            "FNum": SMCValue(key: SMCKey("FNum"), dataType: .ui8, bytes: [1]),
+            "F0Ac": fltValue("F0Ac", 0),
+            "F0Tg": fltValue("F0Tg", 0),
+            "F0Mn": fltValue("F0Mn", 0),
+            "F0Mx": fltValue("F0Mx", 0),
+            "F0Md": SMCValue(key: SMCKey("F0Md"), dataType: .ui8, bytes: [0]),
+        ]
+
+        let r = SensorReader(smc: fake, cpu: CPULoadSampler(), mem: MemorySampler(),
+                             tempKeyPrefixes: ["Tp"])
+        XCTAssertTrue(r.snapshot().fans.isEmpty, "dải 0..0 không điều khiển được thì đừng hiện ra")
+    }
+
 }

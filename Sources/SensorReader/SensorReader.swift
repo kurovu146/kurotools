@@ -116,13 +116,16 @@ public final class SensorReader {
 
     private func fanConstants() -> [FanConstants] {
         if let cached = cachedFanConstants { return cached }
-        let count = Swift.min(Swift.max(Int(readDouble(SMCKey("FNum"))), 1), 8)
-        let constants = (0..<count).map { i in
-            FanConstants(acKey: SMCKey("F\(i)Ac"),
-                         tgKey: SMCKey("F\(i)Tg"),
-                         mdKey: SMCKey("F\(i)Md"),
-                         min: readDouble(SMCKey("F\(i)Mn")),
-                         max: readDouble(SMCKey("F\(i)Mx")))
+        // Chỉ nhận quạt đã tự chứng minh là có thật — xem `controllableFans()`.
+        // Máy không quạt trả về mảng rỗng, và mảng rỗng đi thẳng ra `Snapshot.fans`
+        // để menu biết mà bỏ hẳn phần điều khiển quạt thay vì hiện số 0.
+        let constants = smc.controllableFans().map { fan in
+            let i = fan.index
+            return FanConstants(acKey: SMCKey("F\(i)Ac"),
+                                tgKey: SMCKey("F\(i)Tg"),
+                                mdKey: SMCKey("F\(i)Md"),
+                                min: readDouble(SMCKey("F\(i)Mn")),
+                                max: fan.maxRPM)
         }
         cachedFanConstants = constants
         return constants
