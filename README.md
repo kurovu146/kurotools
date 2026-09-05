@@ -200,6 +200,34 @@ sudo .build/debug/smc-dump --test-high   # force ~5500 rpm and read back actual 
 sudo .build/debug/smc-dump --revert      # safety: force fans back to Auto
 ```
 
+## Security
+
+**The fan helper runs as root**, because writing fan keys to the SMC is a privileged operation.
+Three things follow, and all three are deliberate.
+
+*Who may give it orders.* The helper listens on `/var/run/kurovitals.sock` and asks the kernel for
+the caller's uid on every connection (`LOCAL_PEERCRED` — the client cannot claim one), accepting
+only root and the user currently sitting at the machine, i.e. the owner of `/dev/console`. Another
+account on a shared Mac, or a daemon running under a service uid, gets `unauthorized` and never
+reaches the SMC. The uid is re-read per connection, so fast user switching moves the permission
+along with the person.
+
+This does **not** separate two processes running under the *same* uid: anything running under your
+own account can drive the fans. Closing that gap needs XPC with a code-signing requirement, which
+this project does not do yet.
+
+*What it will accept.* Commands are validated before any SMC write — fan index in range, 1..11999
+rpm, TTL 1..60 s — and every forced speed carries a deadline. The helper reverts a fan to Auto when
+its TTL expires, when the app stops sending heartbeats, on SIGTERM/SIGINT, and on its own startup.
+A caller cannot pin a fan low and walk away.
+
+*Where the lookup sends your text.* `crates/ktranslate-core/src/provider/gtx.rs` calls the free
+`translate.googleapis.com/translate_a/single` endpoint with the selected text and a language pair —
+no API key, no account, nothing else about you. That endpoint is undocumented and is not an
+officially supported API: Google may rate-limit an IP, change the response shape, or withdraw it
+without notice, and automated use at volume is not something their terms provide for. The parser
+degrades to "no result" instead of crashing when the shape changes.
+
 ## Notes
 
 Fan control is unsupported by Apple and reverse-engineered via SMC keys. It was empirically

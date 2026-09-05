@@ -91,6 +91,29 @@ final class Daemon {
     }
 }
 
+/// UID của tiến trình ở đầu kia socket, hỏi thẳng kernel — client không tự khai
+/// được. `xucred` là bản Darwin của `SO_PEERCRED` trên Linux.
+func peerUID(_ fd: Int32) -> uid_t? {
+    var cred = xucred()
+    var len = socklen_t(MemoryLayout<xucred>.size)
+    let rc = withUnsafeMutablePointer(to: &cred) {
+        getsockopt(fd, SOL_LOCAL, LOCAL_PEERCRED, $0, &len)
+    }
+    guard rc == 0, cred.cr_version == XUCRED_VERSION else { return nil }
+    return cred.cr_uid
+}
+
+/// UID của người đang ngồi trước máy. macOS trao `/dev/console` cho console user
+/// hiện tại, nên `stat` đọc được giá trị đó mà không phải link SystemConfiguration.
+/// Đọc lại ở MỖI kết nối chứ không cache: fast user switching đổi console user
+/// giữa chừng, và một giá trị cache sẽ tiếp tục cấp quyền cho tài khoản vừa bị
+/// chuyển ra sau lưng người đang dùng máy.
+func consoleUserUID() -> uid_t? {
+    var st = stat()
+    guard stat("/dev/console", &st) == 0 else { return nil }
+    return st.st_uid
+}
+
 // Create, bind, chmod, and listen on a Unix-domain socket.
 // Returns the listening file descriptor.
 func makeSocket(path: String) -> Int32 {
@@ -122,7 +145,11 @@ func makeSocket(path: String) -> Int32 {
         FileHandle.standardError.write(Data("bind() failed on \(path)\n".utf8))
         exit(1)
     }
-    // Allow the console user to connect (single-user machine).
+    // Socket sống trong /var/run (chỉ root ghi được), nên bit quyền ở đây chỉ
+    // quyết định AI MỞ ĐƯỢC kết nối, không quyết định ai ra lệnh được: 0600 thì
+    // owner là root và app chạy dưới quyền user không nối vào nổi, còn chown
+    // sang console user thì sai ngay khi fast user switching đổi người. Việc
+    // lọc để cho accept loop làm, nơi kernel nói thật uid của bên kia.
     chmod(path, 0o666)
     guard listen(fd, 8) == 0 else {
         FileHandle.standardError.write(Data("listen() failed\n".utf8))
@@ -178,6 +205,23 @@ while true {
     let clientFD = accept(listenFD, nil, nil)
     if clientFD < 0 { continue }
     defer { close(clientFD) }
+
+    // Daemon này chạy root và ghi thẳng vào SMC, nên nó phải tự trả lời "ai gọi?".
+    // Chỉ root và người đang ngồi trước máy được chỉnh quạt — tài khoản khác trên
+    // máy nhiều người dùng, và daemon chạy dưới uid dịch vụ, dừng ở đây. Lớp này
+    // KHÔNG tách được hai tiến trình cùng một uid: một app chạy dưới chính tài
+    // khoản đó vẫn ra lệnh được. Muốn chặn tới mức đó phải là XPC kèm code-signing
+    // requirement, không phải Unix socket.
+    let caller = peerUID(clientFD)
+    guard let uid = caller, uid == 0 || uid == consoleUserUID() else {
+        let who = caller.map { "uid \($0)" } ?? "unknown peer"
+        FileHandle.standardError.write(Data("rejected connection from \(who)\n".utf8))
+        if var out = try? jsonEncoder.encode(FanResponse(ok: false, message: "unauthorized")) {
+            out.append(0x0A)
+            _ = out.withUnsafeBytes { write(clientFD, $0.baseAddress, out.count) }
+        }
+        continue
+    }
 
     var buf = [UInt8](repeating: 0, count: 1024)
     let n = read(clientFD, &buf, buf.count)
