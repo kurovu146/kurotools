@@ -61,6 +61,12 @@ cd kurotools
 ./scripts/install-app.sh          # build + sign the bundle, install it to /Applications
 ```
 
+> **Signing.** `install-app.sh` signs the bundle with `$KUROTOOLS_SIGNING_IDENTITY`, else the
+> Team ID in `.signing-identity` at the repo root (untracked), else ad-hoc. Ad-hoc needs no Apple
+> Developer account and builds fine — but macOS ties Accessibility permission to the signature, so
+> the lookup hotkey asks for that permission again after every rebuild. Put a Team ID in
+> `.signing-identity` to keep the signature stable across builds.
+
 Then, to have it start at login, turn on **Chạy khi đăng nhập** in *Settings ▸ Chung*. That
 toggle is the supported autostart mechanism: the app registers its own LaunchAgent through
 `SMAppService`, using the plist shipped inside the bundle. `install-app.sh` never writes a
@@ -234,3 +240,7 @@ Fan control is unsupported by Apple and reverse-engineered via SMC keys. It was 
 verified on the target M2 Pro (actual RPM climbed to the requested target). The physical fan
 takes a few seconds to spin up to a new target — that lag is mechanical, not software. Use at
 your own risk; firmware thermal throttling remains the ultimate hardware protection.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).

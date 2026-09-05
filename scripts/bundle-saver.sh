@@ -2,7 +2,20 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SAVER="$ROOT/KuroToolsWallpaper.saver"
-IDENTITY="${KUROTOOLS_SIGNING_IDENTITY:-M97RK4Q68S}"
+# Chữ ký ỔN ĐỊNH giữ quyền Accessibility qua các lần rebuild: TCC neo quyền vào
+# signing identity, đổi identity là mất quyền và phải cấp lại tay. Thứ tự tìm:
+# biến môi trường → .signing-identity (không tracked, máy nào của người nấy) →
+# ad-hoc. Ad-hoc để người không có tài khoản Apple Developer vẫn build được;
+# đổi lại cdhash đổi theo từng bản build nên quyền Accessibility rụng mỗi lần.
+IDENTITY="${KUROTOOLS_SIGNING_IDENTITY:-}"
+if [ -z "$IDENTITY" ] && [ -r "$ROOT/.signing-identity" ]; then
+  IDENTITY="$(tr -d "[:space:]" < "$ROOT/.signing-identity")"
+fi
+if [ -z "$IDENTITY" ]; then
+  IDENTITY="-"
+  echo "⚠️  Ký ad-hoc — macOS sẽ hỏi lại quyền Accessibility sau MỖI lần build."
+  echo "   Có tài khoản Apple Developer? Ghi Team ID vào .signing-identity để tránh."
+fi
 export MACOSX_DEPLOYMENT_TARGET=13.0
 
 # Đi qua `make rust` như bundle-app.sh: Makefile giữ lá chắn stamp-hash, bỏ qua
